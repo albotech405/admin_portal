@@ -1,0 +1,41 @@
+# Core
+fastapi
+uvicorn[standard]
+python-multipart
+
+# Supabase
+supabase
+
+# Database & Migrations
+sqlalchemy
+alembic
+psycopg2-binary
+
+# Configuration
+python-dotenv
+pydantic-settings
+
+# authentication
+python-jose
+pyjwt
+bcrypt
+passlib
+
+# Ride feature
+apscheduler
+
+# Email validation
+email-validator
+
+# M-Pesa integration
+httpx
+cryptography
+
+# SOS / SMS (Twilio)
+twilio
+
+# Firebase Cloud Messaging (push notifications)
+google-auth
+
+# Email sending (verification codes)
+sendgrid
