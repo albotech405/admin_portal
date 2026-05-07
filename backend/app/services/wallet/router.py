@@ -1,227 +1,177 @@
-"""
-Wallet endpoints — driver topup requests and admin review.
-"""
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
+from typing import Optional, List
+from app.core.dependencies import require_admin
+from app.core.supabase import get_supabase
 
-import uuid
-from typing import Optional
-from fastapi import APIRouter, Depends, File, Form, UploadFile, Query, HTTPException, status
-from sqlalchemy.orm import Session
-
-from app.db.engine import get_db
-from app.core.dependencies import get_current_user
-from app.models.user import User
-from app.models.wallet import TopupRequestStatus
-from app.services.wallet.wallet_service import WalletService
-from app.services.wallet.schemas import (
-    SubmitTopupRequest,
-    RejectTopupRequest,
-    InitiateMpesaTopupRequest,
-    MpesaTopupInitiatedResponse,
-    TopupRequestResponse,
-    TopupRequestListResponse,
-    WalletTransactionResponse,
-    WalletTransactionListResponse,
-    WalletBalanceResponse,
-)
-
-router = APIRouter(prefix="/wallet")
+router = APIRouter(prefix="/wallet", tags=["wallet"])
 
 
-def require_admin(user: User = Depends(get_current_user)) -> User:
-    """Dependency — only allow admin users."""
-    if not user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required.",
-        )
-    return user
+class TopupRequest(BaseModel):
+    id: str
+    driver_id: str
+    amount: float
+    status: str
+    payment_method: Optional[str] = None
+    proof_image_url: Optional[str] = None
+    notes: Optional[str] = None
+    submitted_at: str
+    reviewed_at: Optional[str] = None
+    reviewed_by: Optional[str] = None
+    rejection_reason: Optional[str] = None
+    mpesa_conversation_id: Optional[str] = None
+    mpesa_transaction_id: Optional[str] = None
+    full_name: Optional[str] = None
+    phone_number: Optional[str] = None
 
 
-# ------------------------------------------------------------------
-# DRIVER: GET WALLET BALANCE
-# ------------------------------------------------------------------
-@router.get(
-    "/balance",
-    response_model=WalletBalanceResponse,
-    summary="Get driver wallet balance",
-)
-def get_balance(
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+class TopupRequestsResponse(BaseModel):
+    requests: List[TopupRequest]
+    total: int
+
+
+class WalletTransaction(BaseModel):
+    id: str
+    driver_id: str
+    type: str
+    amount: float
+    balance_after: float
+    reference_type: Optional[str] = None
+    reference_id: Optional[str] = None
+    description: Optional[str] = None
+    created_at: str
+
+
+class WalletBalanceResponse(BaseModel):
+    driver_id: str
+    balance: float
+
+
+class WalletTransactionListResponse(BaseModel):
+    transactions: List[WalletTransaction]
+
+
+class RejectBody(BaseModel):
+    rejection_reason: Optional[str] = None
+
+
+@router.get("/admin/topup/requests", response_model=TopupRequestsResponse)
+def list_topup_requests(
+    status: Optional[str] = Query(None),
+    _user=Depends(require_admin),
 ):
-    service = WalletService(db)
-    return service.get_balance(user)
-
-
-# ------------------------------------------------------------------
-# DRIVER: SUBMIT TOPUP REQUEST (multipart: form fields + proof image)
-# ------------------------------------------------------------------
-@router.post(
-    "/topup/submit",
-    response_model=TopupRequestResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Submit proof of payment to request wallet top-up",
-)
-async def submit_topup(
-    amount: float = Form(..., gt=0, description="Amount paid in USD"),
-    payment_method: str = Form(..., description="mpesa | orange_money | airtel_money | bank_transfer"),
-    notes: Optional[str] = Form(None),
-    proof_image: UploadFile = File(..., description="Screenshot or photo of payment receipt"),
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    from app.models.wallet import PaymentMethod
-    from decimal import Decimal
-
-    # Validate payment_method enum
     try:
-        pm = PaymentMethod(payment_method)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Invalid payment_method. Allowed values: {[e.value for e in PaymentMethod]}",
+        sb = get_supabase()
+        query = sb.table("wallet_topup_requests").select(
+            "*, driver_profiles(user_id, users(full_name, phone_number))"
         )
+        if status:
+            query = query.eq("status", status)
+        result = query.order("submitted_at", desc=True).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-    class _Data:
-        pass
+    rows = []
+    for r in result.data or []:
+        dp = r.pop("driver_profiles", {}) or {}
+        user_info = (dp.get("users") or {})
+        rows.append(TopupRequest(
+            **r,
+            full_name=user_info.get("full_name"),
+            phone_number=user_info.get("phone_number"),
+        ))
 
-    data = _Data()
-    data.amount = Decimal(str(amount))
-    data.payment_method = pm
-    data.notes = notes
-
-    service = WalletService(db)
-    return await service.submit_topup_request(user, data, proof_image)
-
-
-# ------------------------------------------------------------------
-# DRIVER: LIST OWN TOPUP REQUESTS
-# ------------------------------------------------------------------
-@router.get(
-    "/topup/requests",
-    response_model=TopupRequestListResponse,
-    summary="List my topup requests",
-)
-def list_my_topup_requests(
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    service = WalletService(db)
-    requests = service.get_own_topup_requests(user)
-    return TopupRequestListResponse(requests=requests, total=len(requests))
+    return TopupRequestsResponse(requests=rows, total=len(rows))
 
 
-# ------------------------------------------------------------------
-# DRIVER: GET TRANSACTION HISTORY
-# ------------------------------------------------------------------
-@router.get(
-    "/transactions",
-    response_model=WalletTransactionListResponse,
-    summary="Get wallet transaction history",
-)
-def get_transactions(
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    service = WalletService(db)
-    transactions = service.get_transactions(user)
-    return WalletTransactionListResponse(transactions=transactions, total=len(transactions))
+@router.patch("/admin/topup/requests/{request_id}/approve")
+def approve_topup(request_id: str, _user=Depends(require_admin)):
+    try:
+        sb = get_supabase()
+        req = sb.table("wallet_topup_requests").select("*").eq("id", request_id).single().execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    if not req.data:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    data = req.data
+    if data["status"] != "pending":
+        raise HTTPException(status_code=400, detail="Request is not pending")
+
+    # driver_id in wallet_topup_requests IS the driver_profiles.id
+    driver_profile_id = data["driver_id"]
+
+    try:
+        driver = sb.table("driver_profiles").select("id, credit_balance").eq("id", driver_profile_id).maybe_single().execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    if not driver.data:
+        raise HTTPException(status_code=404, detail="Driver profile not found")
+
+    new_balance = (driver.data.get("credit_balance") or 0) + data["amount"]
+
+    try:
+        sb.table("driver_profiles").update({"credit_balance": new_balance}).eq("id", driver_profile_id).execute()
+        sb.table("wallet_transactions").insert({
+            "driver_id": driver_profile_id,
+            "type": "credit",
+            "amount": data["amount"],
+            "balance_after": new_balance,
+            "reference_type": "topup",
+            "description": "Wallet topup approved",
+            "reference_id": request_id,
+        }).execute()
+        sb.table("wallet_topup_requests").update({"status": "approved"}).eq("id", request_id).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return {"message": "Topup approved", "new_balance": new_balance}
 
 
-# ------------------------------------------------------------------
-# DRIVER: INITIATE MPESA TOPUP
-# ------------------------------------------------------------------
-@router.post(
-    "/mpesa/topup",
-    response_model=MpesaTopupInitiatedResponse,
-    status_code=status.HTTP_202_ACCEPTED,
-    summary="Initiate M-Pesa C2B wallet top-up (driver will receive USSD prompt)",
-)
-async def initiate_mpesa_topup(
-    data: InitiateMpesaTopupRequest,
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    service = WalletService(db)
-    topup = await service.initiate_mpesa_topup(user, data.amount, data.phone_number)
-    return MpesaTopupInitiatedResponse(
-        message="Payment initiated. Please check your phone for the M-Pesa prompt and enter your PIN.",
-        topup_request_id=topup.id,
-        mpesa_conversation_id=topup.mpesa_conversation_id or "",
-        status=topup.status,
-    )
+@router.patch("/admin/topup/requests/{request_id}/reject")
+def reject_topup(request_id: str, body: Optional[RejectBody] = None, _user=Depends(require_admin)):
+    try:
+        sb = get_supabase()
+        update_data: dict = {"status": "rejected"}
+        if body and body.rejection_reason:
+            update_data["rejection_reason"] = body.rejection_reason
+        result = sb.table("wallet_topup_requests").update(update_data).eq("id", request_id).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Request not found")
+    return {"message": "Topup rejected"}
 
 
-# ------------------------------------------------------------------
-# MPESA ASYNC CALLBACK (called by M-Pesa — no auth)
-# ------------------------------------------------------------------
-@router.post(
-    "/mpesa/callback",
-    status_code=status.HTTP_200_OK,
-    summary="M-Pesa async callback — do not call manually",
-    include_in_schema=False,  # hide from Swagger docs
-)
-def mpesa_callback(
-    payload: dict,
-    db: Session = Depends(get_db),
-):
-    """
-    M-Pesa posts the final transaction result here.
-    We credit the driver's wallet on success and respond with the required
-    confirmation JSON so M-Pesa closes the session.
-    """
-    service = WalletService(db)
-    return service.handle_mpesa_callback(payload)
+@router.get("/admin/driver/{driver_id}/balance", response_model=WalletBalanceResponse)
+def get_driver_balance(driver_id: str, _user=Depends(require_admin)):
+    try:
+        sb = get_supabase()
+        result = sb.table("driver_profiles").select("id, credit_balance").eq("id", driver_id).maybe_single().execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    return WalletBalanceResponse(driver_id=driver_id, balance=result.data.get("credit_balance") or 0)
 
 
-# ------------------------------------------------------------------
-# ADMIN: LIST ALL TOPUP REQUESTS
-# ------------------------------------------------------------------
-@router.get(
-    "/admin/topup/requests",
-    response_model=TopupRequestListResponse,
-    summary="[Admin] List all topup requests",
-)
-def admin_list_topup_requests(
-    status_filter: Optional[TopupRequestStatus] = Query(None, alias="status"),
-    admin: User = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    service = WalletService(db)
-    requests = service.admin_list_topup_requests(status_filter)
-    return TopupRequestListResponse(requests=requests, total=len(requests))
+@router.get("/admin/driver/{driver_id}/transactions", response_model=WalletTransactionListResponse)
+def get_driver_transactions(driver_id: str, _user=Depends(require_admin)):
+    try:
+        sb = get_supabase()
+        result = (
+            sb.table("wallet_transactions")
+            .select("*")
+            .eq("driver_id", driver_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-
-# ------------------------------------------------------------------
-# ADMIN: APPROVE TOPUP REQUEST
-# ------------------------------------------------------------------
-@router.patch(
-    "/admin/topup/requests/{request_id}/approve",
-    response_model=TopupRequestResponse,
-    summary="[Admin] Approve topup request and credit driver wallet",
-)
-async def admin_approve_topup(
-    request_id: uuid.UUID,
-    admin: User = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    service = WalletService(db)
-    return await service.admin_approve_topup(request_id, admin)
-
-
-# ------------------------------------------------------------------
-# ADMIN: REJECT TOPUP REQUEST
-# ------------------------------------------------------------------
-@router.patch(
-    "/admin/topup/requests/{request_id}/reject",
-    response_model=TopupRequestResponse,
-    summary="[Admin] Reject topup request with reason",
-)
-async def admin_reject_topup(
-    request_id: uuid.UUID,
-    data: RejectTopupRequest,
-    admin: User = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    service = WalletService(db)
-    return await service.admin_reject_topup(request_id, admin, data.rejection_reason)
+    transactions = [WalletTransaction(**t) for t in (result.data or [])]
+    return WalletTransactionListResponse(transactions=transactions)

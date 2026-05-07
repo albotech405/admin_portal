@@ -1,18 +1,18 @@
 import React from 'react'
 
-interface TableProps {
+interface TableProps<T extends object = Record<string, unknown>> {
   columns: Array<{ key: string; label: string; width?: string }>
-  data: Array<Record<string, unknown>>
-  onRowClick?: (row: Record<string, unknown>) => void
+  data: Array<T>
+  onRowClick?: (row: T) => void
   isLoading?: boolean
 }
 
-export const Table: React.FC<TableProps> = ({
+export const Table = <T extends object>({
   columns,
   data,
   onRowClick,
   isLoading = false,
-}) => {
+}: TableProps<T>) => {
   if (isLoading) {
     return (
       <div className="flex justify-center items-center h-64">
@@ -53,7 +53,7 @@ export const Table: React.FC<TableProps> = ({
             >
               {columns.map((col) => (
                 <td key={col.key} className="px-4 py-3 text-gray-900">
-                  {String(row[col.key] || '-')}
+                  {String((row as Record<string, unknown>)[String(col.key)] || '-')}
                 </td>
               ))}
             </tr>

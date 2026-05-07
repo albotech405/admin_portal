@@ -92,10 +92,11 @@ export const DriverApproval: React.FC = () => {
   }
 
   const tableColumns = [
+    { key: 'full_name', label: 'Name' },
+    { key: 'phone_number', label: 'Phone' },
     { key: 'license_number', label: 'License' },
-    { key: 'user_id', label: 'User ID' },
-    { key: 'verification_status', label: 'Status', width: 'w-24' },
-    { key: 'rating', label: 'Rating', width: 'w-20' },
+    { key: 'verification_status', label: 'Status', width: 'w-28' },
+    { key: 'submitted_at', label: 'Submitted', width: 'w-28' },
   ]
 
   if (!showDetailView) {
@@ -116,15 +117,15 @@ export const DriverApproval: React.FC = () => {
 
         <Card>
           <div className="flex justify-between items-center mb-4 gap-4">
-            <div className="flex gap-2">
-              {['pending', 'approved', 'rejected', 'suspended'].map((status) => (
+            <div className="flex flex-wrap gap-2">
+              {['pending', 'under_review', 'approved', 'rejected', 'suspended'].map((status) => (
                 <Button
                   key={status}
                   variant={filterStatus === status ? 'primary' : 'secondary'}
                   size="sm"
                   onClick={() => setFilterStatus(status)}
                 >
-                  {status.charAt(0).toUpperCase() + status.slice(1)}
+                  {status === 'under_review' ? 'Under Review' : status.charAt(0).toUpperCase() + status.slice(1)}
                 </Button>
               ))}
             </div>
@@ -134,7 +135,14 @@ export const DriverApproval: React.FC = () => {
           </div>
           <Table
             columns={tableColumns}
-            data={drivers}
+            data={drivers.map((d: Driver) => ({
+              ...d,
+              full_name: d.full_name || 'N/A',
+              phone_number: d.phone_number || 'N/A',
+              submitted_at: d.submitted_at
+                ? new Date(d.submitted_at).toLocaleDateString()
+                : 'N/A',
+            }))}
             onRowClick={(row) => {
               const driver = drivers.find((d) => d.id === row.id)
               if (driver) {
@@ -167,10 +175,17 @@ export const DriverApproval: React.FC = () => {
       <div>
         <h1 className="text-3xl font-bold text-gray-900">Driver Details</h1>
         <div className="flex items-center gap-3 mt-2">
-          <span className="text-lg">Driver: {selectedDriver.user_id}</span>
+          <span className="text-lg font-semibold">
+            {selectedDriver.full_name || 'Unknown Driver'}
+          </span>
+          {selectedDriver.phone_number && (
+            <span className="text-gray-600">{selectedDriver.phone_number}</span>
+          )}
           <Badge status={selectedDriver.verification_status}>
-            {selectedDriver.verification_status.charAt(0).toUpperCase() +
-              selectedDriver.verification_status.slice(1)}
+            {selectedDriver.verification_status === 'under_review'
+              ? 'Under Review'
+              : selectedDriver.verification_status.charAt(0).toUpperCase() +
+                selectedDriver.verification_status.slice(1)}
           </Badge>
         </div>
       </div>
@@ -181,6 +196,14 @@ export const DriverApproval: React.FC = () => {
           <Card>
             <h2 className="text-xl font-semibold mb-4">Driver Information</h2>
             <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-gray-600 text-sm">Full Name</p>
+                <p className="font-semibold">{selectedDriver.full_name || 'N/A'}</p>
+              </div>
+              <div>
+                <p className="text-gray-600 text-sm">Phone Number</p>
+                <p className="font-semibold">{selectedDriver.phone_number || 'N/A'}</p>
+              </div>
               <div>
                 <p className="text-gray-600 text-sm">License Number</p>
                 <p className="font-semibold">{selectedDriver.license_number}</p>
@@ -201,6 +224,30 @@ export const DriverApproval: React.FC = () => {
                   {new Date(selectedDriver.created_at).toLocaleDateString()}
                 </p>
               </div>
+              {selectedDriver.submitted_at && (
+                <div>
+                  <p className="text-gray-600 text-sm">Submitted At</p>
+                  <p className="font-semibold">
+                    {new Date(selectedDriver.submitted_at).toLocaleDateString()}
+                  </p>
+                </div>
+              )}
+              {selectedDriver.activation_date && (
+                <div>
+                  <p className="text-gray-600 text-sm">Activated At</p>
+                  <p className="font-semibold">
+                    {new Date(selectedDriver.activation_date).toLocaleDateString()}
+                  </p>
+                </div>
+              )}
+              {selectedDriver.verification_feedback && (
+                <div className="col-span-2">
+                  <p className="text-gray-600 text-sm">Feedback</p>
+                  <p className="font-semibold text-orange-700">
+                    {selectedDriver.verification_feedback}
+                  </p>
+                </div>
+              )}
             </div>
           </Card>
 
@@ -250,7 +297,7 @@ export const DriverApproval: React.FC = () => {
                   <div key={doc.id} className="flex justify-between items-center">
                     <div>
                       <p className="text-gray-700 capitalize">{doc.document_type}</p>
-                      <Badge status={doc.status as any}>
+                      <Badge status={doc.status}>
                         {doc.status}
                       </Badge>
                     </div>
@@ -285,6 +332,12 @@ export const DriverApproval: React.FC = () => {
                 <p className="text-2xl font-bold">{selectedDriver.total_trips}</p>
               </div>
               <div className="border-t pt-3">
+                <p className="text-gray-600 text-sm">Wallet Balance</p>
+                <p className="text-2xl font-bold text-green-600">
+                  {selectedDriver.credit_balance?.toFixed(2) ?? '0.00'}
+                </p>
+              </div>
+              <div className="border-t pt-3">
                 <p className="text-gray-600 text-sm">Status</p>
                 <p className="text-lg font-bold">
                   {selectedDriver.is_online ? '🟢 Online' : '🔴 Offline'}
@@ -294,7 +347,8 @@ export const DriverApproval: React.FC = () => {
           </Card>
 
           <Card className="space-y-3">
-            {selectedDriver.verification_status === 'pending' && (
+            {(selectedDriver.verification_status === 'pending' ||
+              selectedDriver.verification_status === 'under_review') && (
               <>
                 <Button
                   variant="success"
@@ -314,8 +368,7 @@ export const DriverApproval: React.FC = () => {
                 </Button>
               </>
             )}
-            {(selectedDriver.verification_status === 'approved' ||
-              selectedDriver.verification_status === 'under_review') && (
+            {selectedDriver.verification_status === 'approved' && (
               <Button
                 variant="warning"
                 onClick={() => setShowRejectModal(true)}
