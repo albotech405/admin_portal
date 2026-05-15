@@ -7,5 +7,20 @@
 }
 
 body {
-  @apply bg-gray-50 text-gray-900;
+  @apply bg-brand-50 text-brand-950;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply rounded-full bg-brand-200;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-brand-300;
 }

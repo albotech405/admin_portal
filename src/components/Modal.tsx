@@ -8,9 +8,10 @@ interface ModalProps {
   onClose: () => void
   onConfirm?: () => void | Promise<void>
   confirmText?: string
-  confirmVariant?: 'primary' | 'success' | 'danger' | 'warning' | 'secondary'
+  confirmVariant?: 'primary' | 'success' | 'danger' | 'warning' | 'secondary' | 'accent'
   cancelText?: string
   isConfirmLoading?: boolean
+  confirmDisabled?: boolean
 }
 
 export const Modal: React.FC<ModalProps> = ({
@@ -23,17 +24,18 @@ export const Modal: React.FC<ModalProps> = ({
   confirmVariant = 'primary',
   cancelText = 'Cancel',
   isConfirmLoading = false,
+  confirmDisabled = false,
 }) => {
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
-        <div className="p-6 border-b border-gray-200">
-          <h2 className="text-xl font-bold text-gray-900">{title}</h2>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="mx-4 w-full max-w-md animate-fade-in rounded-2xl border border-brand-100 bg-white shadow-2xl">
+        <div className="border-b border-brand-100 px-6 py-4">
+          <h2 className="text-lg font-bold text-brand-900">{title}</h2>
         </div>
-        <div className="p-6">{children}</div>
-        <div className="p-6 border-t border-gray-200 flex gap-3 justify-end">
+        <div className="px-6 py-4">{children}</div>
+        <div className="flex justify-end gap-3 border-t border-brand-100 px-6 py-4">
           <Button variant="secondary" onClick={onClose}>
             {cancelText}
           </Button>
@@ -42,6 +44,7 @@ export const Modal: React.FC<ModalProps> = ({
               variant={confirmVariant}
               onClick={onConfirm}
               isLoading={isConfirmLoading}
+              disabled={confirmDisabled}
             >
               {confirmText}
             </Button>

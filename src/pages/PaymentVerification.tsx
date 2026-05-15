@@ -86,21 +86,21 @@ export const PaymentVerification: React.FC = () => {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Payment Verification</h1>
-          <p className="text-gray-600 mt-2">
+          <h1 className="text-3xl font-bold text-brand-950">Payment Verification</h1>
+          <p className="text-brand-600 mt-2">
             Review and approve pending payment requests from drivers
           </p>
         </div>
 
         {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+          <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             {error}
           </div>
         )}
 
         <Card>
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-semibold">
+            <h2 className="text-xl font-semibold text-brand-950">
               Pending Requests ({payments.length})
             </h2>
             <Button variant="secondary" size="sm" onClick={loadPayments}>
@@ -111,7 +111,7 @@ export const PaymentVerification: React.FC = () => {
             columns={tableColumns}
             data={payments.map((p: PaymentRequest) => ({
               ...p,
-              amount: `$${p.amount}`,
+              amount: `${p.amount.toLocaleString()} CDF`,
             }))}
             onRowClick={(row: any) => {
               const payment = payments.find((p) => p.id === row.id)
@@ -137,15 +137,15 @@ export const PaymentVerification: React.FC = () => {
           setShowDetailView(false)
           setSelectedPayment(null)
         }}
-        className="text-blue-600 hover:text-blue-700 font-semibold text-sm"
+        className="text-brand-600 hover:text-brand-700 font-semibold text-sm"
       >
         ← Back to List
       </button>
 
       <div>
-        <h1 className="text-3xl font-bold text-gray-900">Payment Details</h1>
+        <h1 className="text-3xl font-bold text-brand-950">Payment Details</h1>
         <div className="flex items-center gap-3 mt-2">
-          <span className="text-lg">Driver: {selectedPayment.driver_id}</span>
+          <span className="text-lg text-brand-900">Driver: {selectedPayment.driver_id}</span>
           <Badge status={selectedPayment.status}>
             {selectedPayment.status.charAt(0).toUpperCase() +
               selectedPayment.status.slice(1)}
@@ -157,7 +157,7 @@ export const PaymentVerification: React.FC = () => {
         {/* Left: Document Preview */}
         <div className="lg:col-span-2">
           <Card>
-            <h2 className="text-xl font-semibold mb-4">Payment Proof</h2>
+            <h2 className="text-xl font-semibold text-brand-950 mb-4">Payment Proof</h2>
             <DocumentPreview
               fileUrl={selectedPayment.proof_image_url}
               fileType="image"
@@ -169,28 +169,28 @@ export const PaymentVerification: React.FC = () => {
         {/* Right: Details and Actions */}
         <div className="space-y-4">
           <Card>
-            <h2 className="text-lg font-semibold mb-4">Request Details</h2>
+            <h2 className="text-lg font-semibold text-brand-950 mb-4">Request Details</h2>
             <div className="space-y-3 text-sm">
               <div>
-                <p className="text-gray-600">Amount</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  ${selectedPayment.amount}
+                <p className="text-brand-500">Amount</p>
+                <p className="text-2xl font-bold text-brand-900">
+                  {selectedPayment.amount.toLocaleString()} CDF
                 </p>
               </div>
-              <div className="border-t pt-3">
-                <p className="text-gray-600">Payment Method</p>
-                <p className="font-semibold">{selectedPayment.payment_method}</p>
+              <div className="border-t border-brand-100 pt-3">
+                <p className="text-brand-500">Payment Method</p>
+                <p className="font-semibold text-brand-900">{selectedPayment.payment_method}</p>
               </div>
-              <div className="border-t pt-3">
-                <p className="text-gray-600">Submitted Date</p>
-                <p className="font-semibold">
+              <div className="border-t border-brand-100 pt-3">
+                <p className="text-brand-500">Submitted Date</p>
+                <p className="font-semibold text-brand-900">
                   {new Date(selectedPayment.submitted_at).toLocaleDateString()}
                 </p>
               </div>
               {selectedPayment.notes && (
-                <div className="border-t pt-3">
-                  <p className="text-gray-600">Notes</p>
-                  <p className="text-sm">{selectedPayment.notes}</p>
+                <div className="border-t border-brand-100 pt-3">
+                  <p className="text-brand-500">Notes</p>
+                  <p className="text-sm text-brand-900">{selectedPayment.notes}</p>
                 </div>
               )}
             </div>
@@ -230,14 +230,14 @@ export const PaymentVerification: React.FC = () => {
         isConfirmLoading={isProcessing}
       >
         <div className="space-y-4">
-          <p className="text-gray-700">
+          <p className="text-brand-600">
             Please provide a reason for rejecting this payment request.
           </p>
           <textarea
             value={rejectReason}
             onChange={(e) => setRejectReason(e.target.value)}
             placeholder="Enter rejection reason..."
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+            className="w-full rounded-xl border border-brand-200 px-4 py-2 text-sm text-brand-900 placeholder-brand-400 focus:outline-none focus:ring-2 focus:ring-red-500"
             rows={4}
             required
           />

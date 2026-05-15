@@ -48,7 +48,7 @@ export const WalletView: React.FC = () => {
 
   const tableData = transactions.map((tx: WalletTransaction) => ({
     ...tx,
-    amount: `${tx.type === 'credit' ? '+' : '-'}$${tx.amount}`,
+    amount: `${tx.type === 'credit' ? '+' : '-'}${tx.amount.toLocaleString()} CDF`,
     type: tx.type.charAt(0).toUpperCase() + tx.type.slice(1),
     created_at: new Date(tx.created_at).toLocaleDateString(),
   }))
@@ -57,8 +57,8 @@ export const WalletView: React.FC = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Driver Wallet</h1>
-          <p className="text-gray-600 mt-2">Driver ID: {driverId}</p>
+          <h1 className="text-3xl font-bold text-brand-950">Driver Wallet</h1>
+          <p className="text-brand-600 mt-2">Driver ID: {driverId}</p>
         </div>
         <Button variant="secondary" onClick={loadWalletData}>
           Refresh
@@ -66,7 +66,7 @@ export const WalletView: React.FC = () => {
       </div>
 
       {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
         </div>
       )}
@@ -74,9 +74,9 @@ export const WalletView: React.FC = () => {
       {/* Balance Card */}
       <Card>
         <div>
-          <p className="text-gray-600 text-lg">Current Balance</p>
-          <p className="text-5xl font-bold text-green-600">${balance}</p>
-          <p className="text-gray-500 text-sm mt-2">
+          <p className="text-brand-500 text-lg">Current Balance</p>
+          <p className="text-5xl font-bold text-green-600">{balance.toLocaleString()} CDF</p>
+          <p className="text-brand-400 text-sm mt-2">
             Last updated: {new Date().toLocaleString()}
           </p>
         </div>
@@ -85,8 +85,8 @@ export const WalletView: React.FC = () => {
       {/* Transaction History */}
       <Card>
         <div className="mb-4">
-          <h2 className="text-xl font-semibold">Transaction History</h2>
-          <p className="text-gray-600 text-sm">
+          <h2 className="text-xl font-semibold text-brand-950">Transaction History</h2>
+          <p className="text-brand-500 text-sm">
             {transactions.length} transactions found
           </p>
         </div>
