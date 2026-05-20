@@ -4,46 +4,43 @@ interface TableProps<T extends object = Record<string, unknown>> {
   columns: Array<{ key: string; label: string; width?: string }>
   data: Array<T>
   onRowClick?: (row: T) => void
-  isLoading?: boolean
   rowClassName?: (row: T) => string
+  isLoading?: boolean
 }
 
 export const Table = <T extends object>({
   columns,
   data,
   onRowClick,
-  isLoading = false,
   rowClassName,
+  isLoading = false,
 }: TableProps<T>) => {
   if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 py-16">
-        <div className="h-10 w-10 animate-spin rounded-full border-4 border-brand-200 border-t-brand-600" />
-        <p className="text-sm text-slate-500">Loading data...</p>
+      <div className="flex justify-center items-center h-64">
+        <p className="text-gray-500">Loading...</p>
       </div>
     )
   }
 
   if (data.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-16">
-        <svg className="mb-3 h-12 w-12 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-        </svg>
-        <p className="text-sm text-slate-500">No data available</p>
+      <div className="flex justify-center items-center h-64">
+        <p className="text-gray-500">No data available</p>
       </div>
     )
   }
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-brand-100">
+    <div className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white/80">
+      <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-brand-100 bg-brand-50">
+          <tr className="border-b border-slate-200 bg-slate-50/90">
             {columns.map((col) => (
               <th
                 key={col.key}
-                className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-brand-700 ${col.width || ''}`}
+                className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 ${col.width || ''}`}
               >
                 {col.label}
               </th>
@@ -54,13 +51,11 @@ export const Table = <T extends object>({
           {data.map((row, idx) => (
             <tr
               key={idx}
-              className={`border-b border-brand-50 transition-colors ${
-                idx % 2 === 0 ? 'bg-white' : 'bg-brand-50/30'
-              } ${onRowClick ? 'cursor-pointer hover:bg-brand-50' : ''} ${rowClassName?.(row) || ''}`}
+              className={`border-b border-slate-200/80 transition-colors last:border-b-0 hover:bg-blue-50/70 ${onRowClick ? 'cursor-pointer' : ''} ${rowClassName ? rowClassName(row) : ''}`}
               onClick={() => onRowClick?.(row)}
             >
               {columns.map((col) => (
-                <td key={col.key} className="px-4 py-3 text-sm text-brand-900">
+                <td key={col.key} className="px-4 py-3 text-slate-900">
                   {String((row as Record<string, unknown>)[String(col.key)] || '-')}
                 </td>
               ))}
@@ -68,6 +63,7 @@ export const Table = <T extends object>({
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   )
 }

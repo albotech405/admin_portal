@@ -8,7 +8,7 @@ interface ModalProps {
   onClose: () => void
   onConfirm?: () => void | Promise<void>
   confirmText?: string
-  confirmVariant?: 'primary' | 'success' | 'danger' | 'warning' | 'secondary' | 'accent'
+  confirmVariant?: 'primary' | 'success' | 'danger' | 'warning' | 'secondary'
   cancelText?: string
   isConfirmLoading?: boolean
   confirmDisabled?: boolean

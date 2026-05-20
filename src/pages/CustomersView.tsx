@@ -1,379 +1,273 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { Card, Button, Badge, Table } from '../components'
-import {
-  Customer,
-  supabaseService,
-  CustomerTripItem,
-  SavedAddress,
-  EmergencyContact,
-  CustomerNotificationItem,
-  ActivityEvent,
-} from '../services/supabaseService'
+import { Card, Button, Badge, Modal, Table } from '../components'
+import { supabaseService } from '../services/supabaseService'
 
-type ProfileTab = 'Overview' | 'Trip History' | 'Saved Places' | 'Emergency Contacts' | 'Notifications' | 'Activity'
+type Customer = {
+  id: string
+  full_name?: string
+  phone_number?: string
+  email?: string
+  status?: string
+  total_trips?: number
+  rating?: number
+  created_at?: string
+  is_banned?: boolean
+  [key: string]: unknown
+}
 
-const PROFILE_TABS: ProfileTab[] = ['Overview', 'Trip History', 'Saved Places', 'Emergency Contacts', 'Notifications', 'Activity']
+type CustomerDetail = Customer & {
+  gender?: string
+  last_active_at?: string
+}
+
+const STATUS_TABS = ['all', 'active', 'banned', 'inactive']
+
+const PROFILE_TABS = ['Overview', 'Trips', 'Saved Places', 'Emergency Contacts', 'Notifications', 'Activity'] as const
+type ProfileTab = typeof PROFILE_TABS[number]
 
 export const CustomersView: React.FC = () => {
   const [customers, setCustomers] = useState<Customer[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
   const [error, setError] = useState<string | null>(null)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
-  const [banReason, setBanReason] = useState('')
-  const [showBanModal, setShowBanModal] = useState(false)
-  const [actionLoading, setActionLoading] = useState(false)
-  const [activeTab, setActiveTab] = useState<ProfileTab>('Overview')
 
-  // Tab data
-  const [trips, setTrips] = useState<CustomerTripItem[]>([])
-  const [tripsTotal, setTripsTotal] = useState(0)
-  const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([])
-  const [emergencyContacts, setEmergencyContacts] = useState<EmergencyContact[]>([])
-  const [notifications, setNotifications] = useState<CustomerNotificationItem[]>([])
-  const [activity, setActivity] = useState<ActivityEvent[]>([])
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerDetail | null>(null)
+  const [profileTab, setProfileTab] = useState<ProfileTab>('Overview')
+  const [tabData, setTabData] = useState<unknown[]>([])
   const [tabLoading, setTabLoading] = useState(false)
 
-  useEffect(() => { loadCustomers() }, [])
+  const [showBanModal, setShowBanModal] = useState(false)
+  const [banReason, setBanReason] = useState('')
+  const [isProcessing, setIsProcessing] = useState(false)
 
-  useEffect(() => {
-    if (selectedCustomer) loadTabData(activeTab)
-  }, [activeTab, selectedCustomer])
-
-  const loadCustomers = async () => {
-    setIsLoading(true)
+  const loadCustomers = useCallback(async () => {
     try {
-      const data = await supabaseService.getCustomers(searchQuery || undefined)
-      setCustomers(data)
+      setIsLoading(true)
+      const params: Record<string, string> = {}
+      if (search) params.search = search
+      if (statusFilter !== 'all') params.status = statusFilter
+      const data = await supabaseService.getCustomers(params)
+      setCustomers(data as Customer[])
       setError(null)
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to load customers')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load customers')
+    } finally {
+      setIsLoading(false)
+    }
+  }, [search, statusFilter])
+
+  useEffect(() => { void loadCustomers() }, [loadCustomers])
+
+  const openCustomer = async (customerId: string) => {
+    try {
+      setIsLoading(true)
+      const data = await supabaseService.getCustomerDetail(customerId)
+      setSelectedCustomer(data as CustomerDetail)
+      setProfileTab('Overview')
+      setTabData([])
+      setError(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load customer')
     } finally {
       setIsLoading(false)
     }
   }
 
-  const loadTabData = useCallback(async (tab: ProfileTab) => {
-    if (!selectedCustomer) return
+  const loadTabData = async (tab: ProfileTab, customerId: string) => {
     setTabLoading(true)
+    setTabData([])
     try {
-      const id = selectedCustomer.id
-      if (tab === 'Trip History') {
-        const r = await supabaseService.getCustomerTrips(id, { limit: 25 })
-        setTrips(r.trips)
-        setTripsTotal(r.total)
-      } else if (tab === 'Saved Places') {
-        const r = await supabaseService.getCustomerSavedAddresses(id)
-        setSavedAddresses(r)
-      } else if (tab === 'Emergency Contacts') {
-        const r = await supabaseService.getCustomerEmergencyContacts(id)
-        setEmergencyContacts(r)
-      } else if (tab === 'Notifications') {
-        const r = await supabaseService.getCustomerNotifications(id, { limit: 25 })
-        setNotifications(r.notifications)
-      } else if (tab === 'Activity') {
-        const r = await supabaseService.getCustomerActivity(id, 30)
-        setActivity(r)
+      switch (tab) {
+        case 'Trips': setTabData(await supabaseService.getCustomerTrips(customerId)); break
+        case 'Saved Places': setTabData(await supabaseService.getCustomerSavedAddresses(customerId)); break
+        case 'Emergency Contacts': setTabData(await supabaseService.getCustomerEmergencyContacts(customerId)); break
+        case 'Notifications': setTabData(await supabaseService.getCustomerNotifications(customerId)); break
+        case 'Activity': {
+          const d = await supabaseService.getCustomerActivity(customerId)
+          setTabData(Array.isArray(d) ? d : [d])
+          break
+        }
+        default: break
       }
-    } catch {
-      // non-critical — show empty state
-    } finally {
-      setTabLoading(false)
-    }
-  }, [selectedCustomer])
+    } catch { /* ignore */ }
+    setTabLoading(false)
+  }
+
+  const handleTabSwitch = (tab: ProfileTab) => {
+    setProfileTab(tab)
+    if (selectedCustomer && tab !== 'Overview') void loadTabData(tab, selectedCustomer.id)
+  }
 
   const handleBan = async () => {
     if (!selectedCustomer || !banReason.trim()) return
-    setActionLoading(true)
     try {
+      setIsProcessing(true)
       await supabaseService.banCustomer(selectedCustomer.id, banReason)
+      setSelectedCustomer({ ...selectedCustomer, is_banned: true, status: 'banned' })
+      setCustomers(customers.map(c => c.id === selectedCustomer.id ? { ...c, is_banned: true, status: 'banned' } : c))
       setShowBanModal(false)
       setBanReason('')
-      setSelectedCustomer(null)
-      loadCustomers()
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to ban customer')
-    } finally {
-      setActionLoading(false)
-    }
+    } catch (err) { setError(err instanceof Error ? err.message : 'Failed to ban customer') }
+    finally { setIsProcessing(false) }
   }
 
-  const handleUnban = async (customer: Customer) => {
-    setActionLoading(true)
+  const handleUnban = async () => {
+    if (!selectedCustomer) return
     try {
-      await supabaseService.unbanCustomer(customer.id)
-      loadCustomers()
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to unban customer')
-    } finally {
-      setActionLoading(false)
-    }
+      setIsProcessing(true)
+      await supabaseService.unbanCustomer(selectedCustomer.id)
+      setSelectedCustomer({ ...selectedCustomer, is_banned: false, status: 'active' })
+      setCustomers(customers.map(c => c.id === selectedCustomer.id ? { ...c, is_banned: false, status: 'active' } : c))
+    } catch (err) { setError(err instanceof Error ? err.message : 'Failed to unban customer') }
+    finally { setIsProcessing(false) }
   }
 
-  const tableColumns = [
-    { key: 'full_name', label: 'Name' },
-    { key: 'phone_number', label: 'Phone' },
-    { key: 'email', label: 'Email' },
-    { key: 'gender', label: 'Gender' },
-    { key: 'customer_rating', label: 'Rating', width: 'w-20' },
-    { key: 'status', label: 'Status', width: 'w-24' },
-    { key: 'created_at', label: 'Joined', width: 'w-28' },
-  ]
+  if (selectedCustomer) {
+    const isBanned = selectedCustomer.is_banned || selectedCustomer.status === 'banned'
+    return (
+      <div className="space-y-6">
+        <button onClick={() => setSelectedCustomer(null)} className="text-blue-600 hover:text-blue-700 font-semibold text-sm">
+          ← Back to Customers
+        </button>
 
-  const tableData = customers.map((c) => ({
-    ...c,
-    full_name: c.full_name || 'N/A',
-    phone_number: c.phone_number || 'N/A',
-    email: c.email || '—',
-    gender: c.gender || '—',
-    customer_rating: c.customer_rating?.toFixed(1) || '—',
-    status: c.is_active ? <Badge status="active">Active</Badge> : <Badge status="suspended">Banned</Badge>,
-    created_at: new Date(c.created_at).toLocaleDateString(),
-  }))
-
-  return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-brand-950">Customer Operations</h1>
-          <p className="mt-1 text-brand-600">Browse, search, and manage customer accounts.</p>
-        </div>
-        <Button variant="secondary" size="sm" onClick={loadCustomers} isLoading={isLoading}>Refresh</Button>
-      </div>
-
-      {error && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
-      )}
-
-      <Card>
-        <div className="flex flex-wrap items-center gap-4">
-          <input
-            type="text"
-            placeholder="Search by name, phone, or email…"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && loadCustomers()}
-            className="flex-1 min-w-[250px] rounded-2xl border border-brand-200 px-4 py-2.5 text-sm text-brand-900 placeholder-brand-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200"
-          />
-          <Button variant="primary" size="sm" onClick={loadCustomers}>Search</Button>
-        </div>
-      </Card>
-
-      <Card>
-        <div className="mb-4 text-sm text-brand-500">{customers.length} customer{customers.length !== 1 ? 's' : ''} found</div>
-        <Table
-          columns={tableColumns}
-          data={tableData}
-          isLoading={isLoading}
-          onRowClick={(row: any) => {
-            const c = customers.find((c) => c.id === row.id)
-            if (c) { setSelectedCustomer(c); setActiveTab('Overview') }
-          }}
-        />
-      </Card>
-
-      {/* Customer Profile Panel */}
-      {selectedCustomer && (
-        <Card className="border-l-4 border-l-brand-500">
-          <div className="flex items-start justify-between mb-4">
-            <div>
-              <h2 className="text-xl font-semibold text-brand-950">{selectedCustomer.full_name || 'Unknown'}</h2>
-              <p className="mt-0.5 text-xs text-brand-400">ID: {selectedCustomer.id}</p>
-            </div>
-            <div className="flex gap-2">
-              <Button variant="secondary" size="sm" onClick={() => setSelectedCustomer(null)}>Close</Button>
-              {selectedCustomer.is_active ? (
-                <Button variant="danger" size="sm" onClick={() => setShowBanModal(true)}>Ban</Button>
-              ) : (
-                <Button variant="primary" size="sm" onClick={() => handleUnban(selectedCustomer)} isLoading={actionLoading}>Unban</Button>
-              )}
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold text-slate-950">{selectedCustomer.full_name || 'Customer'}</h1>
+            <div className="flex flex-wrap items-center gap-3 mt-2">
+              {selectedCustomer.phone_number && <span className="text-slate-600 text-sm">{selectedCustomer.phone_number}</span>}
+              <Badge status={isBanned ? 'rejected' : 'approved'}>{isBanned ? 'Banned' : (selectedCustomer.status || 'Active')}</Badge>
             </div>
           </div>
-
-          {/* Tab bar */}
-          <div className="flex gap-1 border-b border-brand-100 mb-6 overflow-x-auto">
-            {PROFILE_TABS.map(tab => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`whitespace-nowrap px-3 py-2 text-sm font-medium transition-colors ${
-                  activeTab === tab
-                    ? 'border-b-2 border-accent-600 text-accent-700'
-                    : 'text-brand-500 hover:text-brand-700'
-                }`}
-              >
-                {tab}
-              </button>
-            ))}
+          <div className="flex gap-2">
+            {isBanned
+              ? <Button variant="primary" size="sm" onClick={handleUnban} disabled={isProcessing}>Unban Customer</Button>
+              : <Button variant="danger" size="sm" onClick={() => setShowBanModal(true)}>Ban Customer</Button>
+            }
           </div>
+        </div>
 
-          {tabLoading && (
-            <div className="flex justify-center py-8">
-              <div className="h-7 w-7 animate-spin rounded-full border-4 border-accent-400 border-t-transparent" />
-            </div>
-          )}
+        {error && <div className="rounded-2xl border border-red-300 bg-red-50 px-4 py-3 text-red-700 text-sm">{error}</div>}
 
-          {!tabLoading && activeTab === 'Overview' && (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {[
-                { label: 'Phone', value: selectedCustomer.phone_number || 'N/A' },
-                { label: 'Email', value: selectedCustomer.email || '—' },
-                { label: 'Gender', value: selectedCustomer.gender || 'Not set' },
-                { label: 'Rating', value: `${selectedCustomer.customer_rating?.toFixed(1) || '—'} / 5.0` },
-                { label: 'Joined', value: new Date(selectedCustomer.created_at).toLocaleDateString() },
-              ].map(({ label, value }) => (
-                <div key={label} className="rounded-2xl bg-brand-50 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.1em] text-brand-500">{label}</p>
-                  <p className="mt-1 font-medium text-brand-900">{value}</p>
+        <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-3">
+          {PROFILE_TABS.map(tab => (
+            <button key={tab} onClick={() => handleTabSwitch(tab)}
+              className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${profileTab === tab ? 'bg-slate-950 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
+              {tab}
+            </button>
+          ))}
+        </div>
+
+        {profileTab === 'Overview' && (
+          <Card>
+            <h2 className="text-lg font-semibold text-slate-950 mb-4">Profile</h2>
+            <dl className="grid grid-cols-2 gap-4 text-sm">
+              {([
+                ['Full Name', selectedCustomer.full_name || 'N/A'],
+                ['Phone', selectedCustomer.phone_number || 'N/A'],
+                ['Email', selectedCustomer.email || 'N/A'],
+                ['Gender', (selectedCustomer.gender as string) || 'not_set'],
+                ['Status', selectedCustomer.status || 'active'],
+                ['Total Trips', String(selectedCustomer.total_trips ?? 0)],
+                ['Rating', selectedCustomer.rating ? Number(selectedCustomer.rating).toFixed(1) : 'N/A'],
+                ['Joined', selectedCustomer.created_at ? new Date(selectedCustomer.created_at).toLocaleDateString() : 'N/A'],
+              ] as [string, string][]).map(([label, value]) => (
+                <div key={label}>
+                  <dt className="text-slate-500">{label}</dt>
+                  <dd className="font-medium text-slate-950 mt-0.5">{value}</dd>
                 </div>
               ))}
-              <div className="rounded-2xl bg-brand-50 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.1em] text-brand-500">Status</p>
-                <p className="mt-1">
-                  {selectedCustomer.is_active ? <Badge status="active">Active</Badge> : <Badge status="suspended">Banned</Badge>}
-                </p>
-              </div>
-            </div>
-          )}
+            </dl>
+          </Card>
+        )}
 
-          {!tabLoading && activeTab === 'Trip History' && (
-            <div>
-              <p className="text-xs text-brand-400 mb-3">{tripsTotal} total trips</p>
-              {trips.length === 0 ? (
-                <p className="text-brand-400 text-sm text-center py-8">No trips found.</p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-brand-100 text-left text-xs font-semibold uppercase tracking-wide text-brand-500">
-                        <th className="pb-2 pr-4">Date</th>
-                        <th className="pb-2 pr-4">Pickup</th>
-                        <th className="pb-2 pr-4">Dropoff</th>
-                        <th className="pb-2 pr-4">Price</th>
-                        <th className="pb-2">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-brand-50">
-                      {trips.map(t => (
-                        <tr key={t.id} className="hover:bg-brand-50/50">
-                          <td className="py-2.5 pr-4 text-brand-500 whitespace-nowrap">{new Date(t.created_at).toLocaleDateString()}</td>
-                          <td className="py-2.5 pr-4 text-brand-700 max-w-[160px] truncate">{t.picking_point?.name || '—'}</td>
-                          <td className="py-2.5 pr-4 text-brand-700 max-w-[160px] truncate">{t.destination?.name || '—'}</td>
-                          <td className="py-2.5 pr-4 font-medium text-brand-900">{t.price != null ? `${t.price} CDF` : '—'}</td>
-                          <td className="py-2.5"><Badge status={t.status === 'completed' ? 'approved' : t.status === 'cancelled' ? 'rejected' : 'pending'}>{t.status}</Badge></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
+        {profileTab !== 'Overview' && (
+          <Card>
+            <h2 className="text-lg font-semibold text-slate-950 mb-4">{profileTab}</h2>
+            {tabLoading
+              ? <div className="flex h-40 items-center justify-center text-slate-500">Loading...</div>
+              : tabData.length === 0
+                ? <div className="flex h-40 items-center justify-center text-slate-500">No {profileTab.toLowerCase()} found.</div>
+                : <div className="space-y-3">{(tabData as Record<string, unknown>[]).map((item, i) => (
+                    <div key={(item.id as string) || i} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                      <pre className="text-xs text-slate-700 whitespace-pre-wrap overflow-x-auto">{JSON.stringify(item, null, 2)}</pre>
+                    </div>
+                  ))}</div>
+            }
+          </Card>
+        )}
 
-          {!tabLoading && activeTab === 'Saved Places' && (
-            <div className="space-y-2">
-              {savedAddresses.length === 0 ? (
-                <p className="text-brand-400 text-sm text-center py-8">No saved addresses.</p>
-              ) : savedAddresses.map(a => (
-                <div key={a.id} className="flex items-start justify-between rounded-xl bg-brand-50 px-4 py-3">
-                  <div>
-                    <p className="font-medium text-brand-900">{a.name || a.address_type || 'Address'}</p>
-                    <p className="text-sm text-brand-600 mt-0.5">{a.display_name || '—'}</p>
-                  </div>
-                  {(a.latitude && a.longitude) && (
-                    <p className="text-xs text-brand-400">{a.latitude.toFixed(4)}, {a.longitude.toFixed(4)}</p>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {!tabLoading && activeTab === 'Emergency Contacts' && (
-            <div className="space-y-2">
-              {emergencyContacts.length === 0 ? (
-                <p className="text-brand-400 text-sm text-center py-8">No emergency contacts.</p>
-              ) : emergencyContacts.map(ec => (
-                <div key={ec.id} className="rounded-xl bg-brand-50 px-4 py-3">
-                  <p className="font-medium text-brand-900">{ec.name}</p>
-                  <p className="text-sm text-brand-600">{ec.phone_number}</p>
-                  {ec.contact_relationship && <p className="text-xs text-brand-400">{ec.contact_relationship}</p>}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {!tabLoading && activeTab === 'Notifications' && (
-            <div className="space-y-2">
-              {notifications.length === 0 ? (
-                <p className="text-brand-400 text-sm text-center py-8">No notifications.</p>
-              ) : notifications.map(n => (
-                <div key={n.id} className="flex items-start justify-between rounded-xl bg-brand-50 px-4 py-3">
-                  <div>
-                    <p className="font-medium text-brand-900 text-sm">{n.title}</p>
-                    <p className="text-xs text-brand-500 mt-0.5">{n.content}</p>
-                    <p className="text-xs text-brand-400 mt-1">{n.notification_type}</p>
-                  </div>
-                  <div className="flex flex-col items-end gap-1">
-                    <Badge status={n.status === 'read' ? 'approved' : 'pending'}>{n.status}</Badge>
-                    <span className="text-xs text-brand-400">{new Date(n.created_at).toLocaleDateString()}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {!tabLoading && activeTab === 'Activity' && (
-            <div className="space-y-2">
-              {activity.length === 0 ? (
-                <p className="text-brand-400 text-sm text-center py-8">No activity found.</p>
-              ) : activity.map((ev, i) => (
-                <div key={ev.id + i} className="flex items-center gap-3 rounded-xl border border-brand-100 px-4 py-3">
-                  <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
-                    ev.type === 'ride' ? 'bg-accent-100 text-accent-700' : 'bg-brand-100 text-brand-600'
-                  }`}>
-                    {ev.type === 'ride' ? '🚗' : '🔔'}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-brand-900 truncate">{ev.summary}</p>
-                    {ev.amount != null && <p className="text-xs text-brand-500">{ev.amount} CDF</p>}
-                  </div>
-                  <span className="text-xs text-brand-400 whitespace-nowrap">
-                    {ev.created_at ? new Date(ev.created_at).toLocaleDateString() : '—'}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-      )}
-
-      {/* Ban Modal */}
-      {showBanModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-3xl border border-brand-100 bg-white p-6 shadow-2xl">
-            <h2 className="text-xl font-semibold text-brand-950">Ban Customer</h2>
-            <p className="mt-2 text-sm text-brand-600">
-              {selectedCustomer?.full_name || 'Unknown'} — {selectedCustomer?.phone_number}
-            </p>
-            <div className="mt-4">
-              <label className="text-sm font-medium text-brand-700">Reason (required)</label>
-              <textarea
-                value={banReason}
-                onChange={(e) => setBanReason(e.target.value)}
-                placeholder="Enter the reason for banning this customer…"
-                className="mt-1 w-full rounded-2xl border border-brand-200 px-4 py-3 text-sm text-brand-900 placeholder-brand-400 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-200"
-                rows={3}
-              />
-            </div>
-            <div className="mt-6 flex justify-end gap-3">
-              <Button variant="secondary" onClick={() => setShowBanModal(false)}>Cancel</Button>
-              <Button variant="danger" onClick={handleBan} isLoading={actionLoading} disabled={!banReason.trim()}>
-                Confirm Ban
+        <Modal isOpen={showBanModal} onClose={() => { setShowBanModal(false); setBanReason('') }} title="Ban Customer">
+          <div className="space-y-4">
+            <p className="text-sm text-slate-600">Provide a reason for the ban. This is recorded in the audit log.</p>
+            <textarea
+              className="w-full rounded-2xl border border-slate-300 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-500"
+              rows={4} placeholder="Reason for ban..." value={banReason} onChange={e => setBanReason(e.target.value)}
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => { setShowBanModal(false); setBanReason('') }}>Cancel</Button>
+              <Button variant="danger" onClick={handleBan} disabled={!banReason.trim() || isProcessing}>
+                {isProcessing ? 'Banning...' : 'Confirm Ban'}
               </Button>
             </div>
           </div>
+        </Modal>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-950">Customer Operations</h1>
+          <p className="mt-2 text-slate-600">Search, review, and manage customer accounts.</p>
         </div>
-      )}
+        <Button variant="secondary" onClick={loadCustomers}>Refresh</Button>
+      </div>
+
+      {error && <div className="rounded-2xl border border-red-300 bg-red-50 px-4 py-3 text-red-700 text-sm">{error}</div>}
+
+      <Card>
+        <div className="flex flex-wrap items-center gap-3 mb-4">
+          <input
+            type="text" value={search} onChange={e => setSearch(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && loadCustomers()}
+            placeholder="Search by name, phone, or ID..."
+            className="flex-1 min-w-48 rounded-2xl border border-slate-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-500"
+          />
+          <Button size="sm" variant="primary" onClick={loadCustomers}>Search</Button>
+        </div>
+        <div className="flex flex-wrap gap-2 mb-4">
+          {STATUS_TABS.map(s => (
+            <button key={s} onClick={() => setStatusFilter(s)}
+              className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-colors ${statusFilter === s ? 'bg-slate-950 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
+              {s.charAt(0).toUpperCase() + s.slice(1)}
+            </button>
+          ))}
+        </div>
+        <Table
+          columns={[
+            { key: 'full_name', label: 'Name' },
+            { key: 'phone_number', label: 'Phone' },
+            { key: 'status', label: 'Status', width: 'w-28' },
+            { key: 'total_trips', label: 'Trips', width: 'w-20' },
+            { key: 'rating', label: 'Rating', width: 'w-20' },
+            { key: 'created_at', label: 'Joined', width: 'w-32' },
+          ]}
+          data={customers.map(c => ({
+            ...c,
+            full_name: c.full_name || 'N/A',
+            phone_number: c.phone_number || 'N/A',
+            status: c.is_banned ? 'banned' : (c.status || 'active'),
+            total_trips: c.total_trips ?? 0,
+            rating: c.rating ? Number(c.rating).toFixed(1) : 'N/A',
+            created_at: c.created_at ? new Date(c.created_at).toLocaleDateString() : 'N/A',
+          }))}
+          onRowClick={row => void openCustomer(row.id as string)}
+          isLoading={isLoading}
+        />
+      </Card>
     </div>
   )
 }

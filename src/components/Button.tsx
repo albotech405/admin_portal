@@ -1,25 +1,25 @@
 import React from 'react'
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'success' | 'danger' | 'warning' | 'secondary' | 'accent'
+  variant?: 'primary' | 'success' | 'danger' | 'warning' | 'secondary'
   size?: 'sm' | 'md' | 'lg'
   isLoading?: boolean
   children: React.ReactNode
 }
 
 const variantStyles = {
-  primary: 'bg-brand-600 hover:bg-brand-700 text-white shadow-sm',
-  success: 'bg-green-600 hover:bg-green-700 text-white shadow-sm',
-  danger: 'bg-red-600 hover:bg-red-700 text-white shadow-sm',
-  warning: 'bg-amber-500 hover:bg-amber-600 text-white shadow-sm',
-  secondary: 'bg-brand-50 hover:bg-brand-100 text-brand-700 border border-brand-200',
-  accent: 'bg-accent-500 hover:bg-accent-600 text-white shadow-sm',
+  primary:
+    'bg-gradient-to-r from-blue-600 to-sky-500 text-white shadow-[0_14px_30px_-18px_rgba(37,99,235,0.9)] hover:from-blue-700 hover:to-sky-600',
+  success: 'bg-emerald-600 hover:bg-emerald-700 text-white',
+  danger: 'bg-rose-600 hover:bg-rose-700 text-white',
+  warning: 'bg-amber-500 hover:bg-amber-600 text-white',
+  secondary: 'border border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700',
 }
 
 const sizeStyles = {
-  sm: 'px-3 py-1.5 text-xs',
-  md: 'px-4 py-2 text-sm',
-  lg: 'px-6 py-3 text-base',
+  sm: 'px-3 py-1 text-sm',
+  md: 'px-4 py-2 text-base',
+  lg: 'px-6 py-3 text-lg',
 }
 
 export const Button: React.FC<ButtonProps> = ({
@@ -32,7 +32,7 @@ export const Button: React.FC<ButtonProps> = ({
   ...props
 }) => {
   const baseStyles =
-    'inline-flex items-center justify-center font-semibold rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2'
+    'rounded-2xl font-semibold transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2'
   const variantStyle = variantStyles[variant]
   const sizeStyle = sizeStyles[size]
 
@@ -43,11 +43,8 @@ export const Button: React.FC<ButtonProps> = ({
       {...props}
     >
       {isLoading ? (
-        <span className="flex items-center gap-2">
-          <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
+        <span className="flex items-center">
+          <span className="animate-spin mr-2">⏳</span>
           Loading...
         </span>
       ) : (

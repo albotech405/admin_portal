@@ -150,7 +150,7 @@ export const DisputesView: React.FC = () => {
     driver: d.driver_name || d.driver_phone || d.driver_id || '—',
     reason: formatDisputeReason(d.dispute_reason),
     raised_by: d.dispute_raised_by === 'customer' ? 'Customer' : d.dispute_raised_by === 'driver' ? 'Driver' : '—',
-    price: formatPrice(d.price),
+    price: formatPrice(d.price ?? 0),
     status: (
       <Badge status={(DISPUTE_STATUS_BADGE[d.dispute_status] || 'neutral') as any}>
         {d.dispute_status.replace(/_/g, ' ')}
@@ -310,13 +310,13 @@ export const DisputesView: React.FC = () => {
               <div>
                 <p className="text-xs font-medium uppercase tracking-wide text-brand-500">Price</p>
                 <p className="mt-0.5 text-sm font-medium text-brand-900">
-                  {formatPrice(selectedDispute.price)}
+                  {formatPrice(selectedDispute.price ?? 0)}
                 </p>
               </div>
               <div>
                 <p className="text-xs font-medium uppercase tracking-wide text-brand-500">Trip Status</p>
                 <p className="mt-0.5 text-sm font-medium text-brand-900">
-                  {selectedDispute.status.replace(/_/g, ' ')}
+                  {selectedDispute.status?.replace(/_/g, ' ') ?? '—'}
                 </p>
               </div>
               <div className="col-span-2">

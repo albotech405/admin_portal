@@ -415,13 +415,13 @@ const SessionsTab: React.FC = () => {
               </thead>
               <tbody className="divide-y divide-brand-50">
                 {sessions.map(s => {
-                  const expired = new Date(s.expires_at) < new Date()
+                  const expired = new Date(s.expires_at ?? '') < new Date()
                   return (
                     <tr key={s.id} className="hover:bg-brand-50/50">
                       <td className="py-3 pr-4 text-brand-700">{s.admin_email || s.admin_user_id.slice(0, 8)}</td>
                       <td className="py-3 pr-4 font-mono text-xs text-brand-600">{s.ip_address || '—'}</td>
                       <td className="py-3 pr-4 text-brand-500 whitespace-nowrap">{new Date(s.created_at).toLocaleString()}</td>
-                      <td className="py-3 pr-4 text-brand-500 whitespace-nowrap">{new Date(s.expires_at).toLocaleString()}</td>
+                      <td className="py-3 pr-4 text-brand-500 whitespace-nowrap">{s.expires_at ? new Date(s.expires_at).toLocaleString() : '—'}</td>
                       <td className="py-3">
                         <Badge status={s.is_active && !expired ? 'active' : 'neutral'}>
                           {s.is_active && !expired ? 'Active' : 'Ended'}

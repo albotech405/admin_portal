@@ -429,7 +429,7 @@ const CategoryMultiplierCard: React.FC<{
 const FareSimulator: React.FC = () => {
   const [vehicleType, setVehicleType] = useState('car')
   const [distanceKm, setDistanceKm] = useState(5)
-  const [timeBand, setTimeBand] = useState('day')
+  const [timeBand, setTimeBand] = useState<'day' | 'evening' | 'night'>('day')
   const [category, setCategory] = useState('standard')
   const [result, setResult] = useState<FareSimulateResponse | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -491,7 +491,7 @@ const FareSimulator: React.FC = () => {
           <label className="block text-xs font-medium text-brand-600">Time Band</label>
           <select
             value={timeBand}
-            onChange={(e) => setTimeBand(e.target.value)}
+            onChange={(e) => setTimeBand(e.target.value as 'day' | 'evening' | 'night')}
             className="mt-1 w-full rounded-lg border border-brand-200 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
           >
             {TIME_BANDS.map((tb) => (

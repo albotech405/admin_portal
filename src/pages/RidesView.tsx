@@ -681,9 +681,9 @@ export const RidesView: React.FC = () => {
                   <div className="rounded-xl border border-brand-100 p-3">
                     <h4 className="mb-2 text-sm font-medium text-brand-700">Vehicle</h4>
                     <div className="space-y-1 text-sm text-brand-600">
-                      <p className="font-medium text-brand-900">{selectedRide.vehicle_snapshot.make} {selectedRide.vehicle_snapshot.model}</p>
-                      <p>{selectedRide.vehicle_snapshot.vehicle_type} · {selectedRide.vehicle_snapshot.color}</p>
-                      <p className="font-mono text-xs text-brand-400">{selectedRide.vehicle_snapshot.license_plate}</p>
+                      <p className="font-medium text-brand-900">{(selectedRide.vehicle_snapshot.make as string) || ''} {(selectedRide.vehicle_snapshot.model as string) || ''}</p>
+                      <p>{(selectedRide.vehicle_snapshot.vehicle_type as string) || ''} · {(selectedRide.vehicle_snapshot.color as string) || ''}</p>
+                      <p className="font-mono text-xs text-brand-400">{(selectedRide.vehicle_snapshot.license_plate as string) || ''}</p>
                     </div>
                   </div>
                 )}
@@ -747,7 +747,7 @@ export const RidesView: React.FC = () => {
                           <div className="flex items-center justify-between text-xs">
                             <span className="font-medium text-amber-700">Update #{idx + 1}</span>
                             <span className="font-mono font-bold text-amber-800">
-                              {offer.price.toLocaleString()} CDF
+                              {(offer.price ?? 0).toLocaleString()} CDF
                             </span>
                           </div>
                           <div className="mt-0.5 flex items-center justify-between text-xs text-amber-600">
@@ -947,7 +947,7 @@ export const RidesView: React.FC = () => {
                               )}
                             </p>
                             <p className="text-xs text-gray-500">
-                              {selectedMarketplaceRequest.suggested_price.toLocaleString()} CDF
+                              {(selectedMarketplaceRequest.suggested_price ?? 0).toLocaleString()} CDF
                             </p>
                           </div>
                         </InfoWindow>
@@ -1053,7 +1053,7 @@ export const RidesView: React.FC = () => {
                           Bids: <span className="font-medium text-brand-900">{selectedRequest.bid_count ?? 0}</span>
                         </p>
                         <p className="text-sm text-brand-600">
-                          Price: <span className="font-medium text-brand-900">{selectedRequest.price.toLocaleString()} CDF</span>
+                          Price: <span className="font-medium text-brand-900">{(selectedRequest.price ?? 0).toLocaleString()} CDF</span>
                         </p>
                         <p className="text-sm text-brand-600">
                           Created: <span className="font-medium text-brand-900">{new Date(selectedRequest.created_at).toLocaleString()}</span>

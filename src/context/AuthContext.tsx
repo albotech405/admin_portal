@@ -61,18 +61,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const activityRef = useRef<number>(Date.now())
+  // Refs to avoid stale closures and prevent double-resolve on boot
+  const sessionIdRef = useRef<string | null>(null)
+  const isAuthenticatedRef = useRef(false)
+  const resolvingRef = useRef(false)
 
   const logout = useCallback(async () => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
-    const { sessionId } = state
     try {
-      if (sessionId) {
-        await supabaseService.invalidateAdminSession(sessionId)
+      if (sessionIdRef.current) {
+        await supabaseService.invalidateAdminSession(sessionIdRef.current)
       }
     } catch { /* non-critical */ }
+    sessionIdRef.current = null
+    isAuthenticatedRef.current = false
     await supabase.auth.signOut()
     setState({ user: null, sessionId: null, isLoading: false, isAuthenticated: false, sessionExpiresAt: null })
-  }, [state])
+  }, [])  // stable — reads sessionId from ref, not state
 
   const scheduleTimeout = useCallback((expiresAt: number) => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
@@ -97,24 +102,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const events = ['mousedown', 'keydown', 'touchstart', 'scroll']
     const handler = () => {
-      if (state.isAuthenticated) refreshSession()
+      if (isAuthenticatedRef.current) refreshSession()
     }
     events.forEach(e => window.addEventListener(e, handler, { passive: true }))
     return () => events.forEach(e => window.removeEventListener(e, handler))
-  }, [state.isAuthenticated, refreshSession])
+  }, [refreshSession])  // refreshSession is now stable → registers only once
 
-  // Boot: check existing session
+  // Boot: onAuthStateChange fires INITIAL_SESSION immediately for existing sessions,
+  // so no separate init() call is needed — avoids double resolveAdminUser on boot.
   useEffect(() => {
-    const init = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) {
-        setState(s => ({ ...s, isLoading: false }))
-        return
-      }
-      await resolveAdminUser(session.access_token)
-    }
-    init()
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (!session) {
         setState({ user: null, sessionId: null, isLoading: false, isAuthenticated: false, sessionExpiresAt: null })
@@ -127,6 +123,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [])
 
   const resolveAdminUser = async (token: string) => {
+    if (resolvingRef.current) return
+    resolvingRef.current = true
     supabaseService.setAuthToken(token)
     try {
       const roleData = await supabaseService.getMyAdminRole()
@@ -138,6 +136,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const sessionResp = await supabaseService.recordAdminLogin()
         sessionId = sessionResp.session_id ?? null
       } catch { /* non-critical */ }
+
+      sessionIdRef.current = sessionId
+      isAuthenticatedRef.current = true
 
       setState({
         user: {
@@ -155,8 +156,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       scheduleTimeout(expiresAt)
     } catch {
       // Not an admin — sign out
+      isAuthenticatedRef.current = false
+      sessionIdRef.current = null
       await supabase.auth.signOut()
       setState({ user: null, sessionId: null, isLoading: false, isAuthenticated: false, sessionExpiresAt: null })
+    } finally {
+      resolvingRef.current = false
     }
   }
 

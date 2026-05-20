@@ -1,234 +1,209 @@
-import React, { useState, useEffect } from 'react'
-import { Card, Button, Badge, Table } from '../components'
+import React, { useState, useEffect, useCallback } from 'react'
+import { Card, Button, Badge, Modal } from '../components'
 import { SosSession, supabaseService } from '../services/supabaseService'
+
+const STATUS_TABS = ['all', 'active', 'resolved', 'cancelled'] as const
+type StatusTab = typeof STATUS_TABS[number]
 
 export const SafetyView: React.FC = () => {
   const [sessions, setSessions] = useState<SosSession[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [statusFilter, setStatusFilter] = useState<StatusTab>('all')
   const [error, setError] = useState<string | null>(null)
-  const [filterStatus, setFilterStatus] = useState<string>('active')
+
   const [selectedSession, setSelectedSession] = useState<SosSession | null>(null)
-  const [resolution, setResolution] = useState('')
-  const [actionLoading, setActionLoading] = useState(false)
+  const [showResolveModal, setShowResolveModal] = useState(false)
+  const [resolveNotes, setResolveNotes] = useState('')
+  const [isProcessing, setIsProcessing] = useState(false)
 
-  useEffect(() => {
-    loadSessions()
-  }, [filterStatus])
-
-  const loadSessions = async () => {
+  const loadSessions = useCallback(async () => {
     try {
       setIsLoading(true)
-      const data = await supabaseService.getSosSessions(
-        filterStatus !== 'all' ? filterStatus : undefined
-      )
+      const data = await supabaseService.getSosSessions(statusFilter !== 'all' ? statusFilter : undefined)
       setSessions(data)
       setError(null)
     } catch (err) {
-      setError('Failed to load SOS sessions')
-      console.error(err)
+      setError(err instanceof Error ? err.message : 'Failed to load SOS sessions')
+    } finally {
+      setIsLoading(false)
+    }
+  }, [statusFilter])
+
+  useEffect(() => { void loadSessions() }, [loadSessions])
+
+  const openSession = async (sessionId: string) => {
+    try {
+      setIsLoading(true)
+      const data = await supabaseService.getSosSessionDetail(sessionId)
+      setSelectedSession(data)
+      setError(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load session detail')
     } finally {
       setIsLoading(false)
     }
   }
 
   const handleResolve = async () => {
-    if (!selectedSession || !resolution.trim()) return
+    if (!selectedSession || !resolveNotes.trim()) return
     try {
-      setActionLoading(true)
-      await supabaseService.resolveSosSession(selectedSession.id, resolution)
-      setSelectedSession(null)
-      setResolution('')
-      loadSessions()
+      setIsProcessing(true)
+      await supabaseService.resolveSosSession(selectedSession.id, resolveNotes)
+      const updated = { ...selectedSession, status: 'resolved', resolved_at: new Date().toISOString() }
+      setSelectedSession(updated)
+      setSessions(sessions.map(s => s.id === selectedSession.id ? updated : s))
+      setShowResolveModal(false)
+      setResolveNotes('')
     } catch (err) {
-      setError('Failed to resolve SOS session')
-      console.error(err)
+      setError(err instanceof Error ? err.message : 'Failed to resolve session')
     } finally {
-      setActionLoading(false)
+      setIsProcessing(false)
     }
   }
 
-  const statusLabels: Record<string, string> = {
-    all: 'All',
-    active: 'Active',
-    resolved: 'Resolved',
-    cancelled: 'Cancelled',
+  const statusColor = (status: string) => {
+    if (status === 'active') return 'bg-red-100 text-red-800 border border-red-200'
+    if (status === 'resolved') return 'bg-green-100 text-green-800 border border-green-200'
+    return 'bg-slate-100 text-slate-700 border border-slate-200'
   }
 
-  const tableColumns = [
-    { key: 'user_type', label: 'Type', width: 'w-20' },
-    { key: 'user_id', label: 'User ID' },
-    { key: 'sos_type', label: 'SOS Type' },
-    { key: 'location_name', label: 'Location' },
-    { key: 'status', label: 'Status', width: 'w-24' },
-    { key: 'created_at', label: 'Time', width: 'w-28' },
-  ]
+  if (selectedSession) {
+    const isActive = selectedSession.status === 'active'
+    return (
+      <div className="space-y-6">
+        <button onClick={() => setSelectedSession(null)} className="text-blue-600 hover:text-blue-700 font-semibold text-sm">
+          ← Back to SOS Sessions
+        </button>
 
-  const tableData = sessions.map((s) => ({
-    ...s,
-    user_type: s.user_type === 'driver' ? (
-      <Badge status="active">Driver</Badge>
-    ) : (
-      <Badge status="pending">Customer</Badge>
-    ),
-    user_id: s.user_id.slice(0, 8) + '…',
-    sos_type: s.sos_type || 'General',
-    location_name: s.location_name || '—',
-    status: s.status === 'active' ? (
-      <Badge status="suspended">Active</Badge>
-    ) : s.status === 'resolved' ? (
-      <Badge status="active">Resolved</Badge>
-    ) : (
-      <Badge status="pending">Cancelled</Badge>
-    ),
-    created_at: new Date(s.created_at).toLocaleString(),
-  }))
-
-  return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-brand-950">Safety & SOS</h1>
-          <p className="mt-2 max-w-3xl text-brand-600">
-            Real-time incident response, SOS queue management, and post-incident review.
-          </p>
-        </div>
-        <Button variant="secondary" size="sm" onClick={loadSessions} isLoading={isLoading}>
-          Refresh
-        </Button>
-      </div>
-
-      {error && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
-        </div>
-      )}
-
-      <Card>
-        <div className="flex flex-wrap items-center gap-2 mb-4">
-          {Object.entries(statusLabels).map(([value, label]) => (
-            <Button
-              key={value}
-              variant={filterStatus === value ? 'primary' : 'secondary'}
-              size="sm"
-              onClick={() => setFilterStatus(value)}
-            >
-              {label}
-            </Button>
-          ))}
-        </div>
-
-        <p className="text-sm text-brand-500 mb-3">
-          {sessions.length} SOS session{sessions.length !== 1 ? 's' : ''} found
-        </p>
-
-        <Table
-          columns={tableColumns}
-          data={tableData}
-          isLoading={isLoading}
-          onRowClick={(row: any) => {
-            const session = sessions.find((s) => s.id === row.id)
-            if (session) setSelectedSession(session)
-          }}
-        />
-      </Card>
-
-      {/* Session Detail Panel */}
-      {selectedSession && (
-        <Card className={`border-l-4 ${
-          selectedSession.status === 'active'
-            ? 'border-l-red-500'
-            : 'border-l-green-500'
-        }`}>
-          <div className="flex items-start justify-between">
-            <div>
-              <h2 className="text-xl font-semibold text-brand-950">
-                SOS Session — {selectedSession.sos_type || 'General'}
-              </h2>
-              <p className="mt-1 text-sm text-brand-500">ID: {selectedSession.id}</p>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold text-slate-950">SOS Session</h1>
+            <div className="flex items-center gap-3 mt-2">
+              <span className="text-sm text-slate-600 font-mono">{selectedSession.id}</span>
+              <span className={`px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wide ${statusColor(selectedSession.status)}`}>
+                {selectedSession.status}
+              </span>
             </div>
-            <div className="flex gap-2">
-              <Button variant="secondary" size="sm" onClick={() => setSelectedSession(null)}>
-                Close
+          </div>
+          {isActive && (
+            <Button variant="danger" onClick={() => setShowResolveModal(true)}>
+              Resolve Session
+            </Button>
+          )}
+        </div>
+
+        {error && <div className="rounded-2xl border border-red-300 bg-red-50 px-4 py-3 text-red-700 text-sm">{error}</div>}
+
+        <div className="grid gap-6 lg:grid-cols-2">
+          <Card>
+            <h2 className="text-lg font-semibold text-slate-950 mb-4">Session Details</h2>
+            <dl className="space-y-3 text-sm">
+              {([
+                ['Session ID', selectedSession.id],
+                ['Ride ID', (selectedSession.ride_id as string) || 'N/A'],
+                ['Triggered By', (selectedSession.triggered_by as string) || 'N/A'],
+                ['Status', selectedSession.status],
+                ['Created', new Date(selectedSession.created_at).toLocaleString()],
+                ['Resolved By', (selectedSession.resolved_by as string) || '—'],
+                ['Resolved At', selectedSession.resolved_at ? new Date(selectedSession.resolved_at).toLocaleString() : '—'],
+              ] as [string, string][]).map(([label, value]) => (
+                <div key={label} className="flex justify-between gap-4">
+                  <dt className="text-slate-500">{label}</dt>
+                  <dd className="font-medium text-slate-950 text-right">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </Card>
+
+          {Object.keys(selectedSession).filter(k => !['id','ride_id','triggered_by','status','created_at','resolved_by','resolved_at'].includes(k)).length > 0 && (
+            <Card>
+              <h2 className="text-lg font-semibold text-slate-950 mb-4">Additional Data</h2>
+              <pre className="text-xs text-slate-700 whitespace-pre-wrap overflow-x-auto">
+                {JSON.stringify(
+                  Object.fromEntries(
+                    Object.entries(selectedSession).filter(([k]) =>
+                      !['id','ride_id','triggered_by','status','created_at','resolved_by','resolved_at'].includes(k)
+                    )
+                  ),
+                  null, 2
+                )}
+              </pre>
+            </Card>
+          )}
+        </div>
+
+        <Modal isOpen={showResolveModal} onClose={() => { setShowResolveModal(false); setResolveNotes('') }} title="Resolve SOS Session">
+          <div className="space-y-4">
+            <p className="text-sm text-slate-600">Describe the resolution outcome. This is required before closing the session.</p>
+            <textarea
+              className="w-full rounded-2xl border border-slate-300 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-500"
+              rows={4} placeholder="Resolution notes..." value={resolveNotes} onChange={e => setResolveNotes(e.target.value)}
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => { setShowResolveModal(false); setResolveNotes('') }}>Cancel</Button>
+              <Button variant="primary" onClick={handleResolve} disabled={!resolveNotes.trim() || isProcessing}>
+                {isProcessing ? 'Resolving...' : 'Mark Resolved'}
               </Button>
             </div>
           </div>
+        </Modal>
+      </div>
+    )
+  }
 
-          <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            <div className="rounded-2xl bg-brand-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.1em] text-brand-500">User Type</p>
-              <p className="mt-1 font-medium text-brand-900 capitalize">{selectedSession.user_type}</p>
-            </div>
-            <div className="rounded-2xl bg-brand-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.1em] text-brand-500">User ID</p>
-              <p className="mt-1 font-mono text-sm text-brand-900">{selectedSession.user_id}</p>
-            </div>
-            <div className="rounded-2xl bg-brand-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.1em] text-brand-500">Status</p>
-              <p className="mt-1">
-                {selectedSession.status === 'active' ? (
-                  <Badge status="suspended">Active</Badge>
-                ) : selectedSession.status === 'resolved' ? (
-                  <Badge status="active">Resolved</Badge>
-                ) : (
-                  <Badge status="pending">Cancelled</Badge>
-                )}
-              </p>
-            </div>
-            <div className="rounded-2xl bg-brand-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.1em] text-brand-500">Location</p>
-              <p className="mt-1 font-medium text-brand-900">
-                {selectedSession.location_name || 'No location data'}
-              </p>
-            </div>
-            <div className="rounded-2xl bg-brand-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.1em] text-brand-500">Created</p>
-              <p className="mt-1 font-medium text-brand-900">
-                {new Date(selectedSession.created_at).toLocaleString()}
-              </p>
-            </div>
-            {selectedSession.resolved_at && (
-              <div className="rounded-2xl bg-brand-50 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.1em] text-brand-500">Resolved At</p>
-                <p className="mt-1 font-medium text-brand-900">
-                  {new Date(selectedSession.resolved_at).toLocaleString()}
-                </p>
-              </div>
-            )}
-          </div>
+  return (
+    <div className="space-y-6">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-950">Safety & SOS</h1>
+          <p className="mt-2 text-slate-600">Monitor and resolve active SOS incidents.</p>
+        </div>
+        <Button variant="secondary" onClick={loadSessions}>Refresh</Button>
+      </div>
 
-          {selectedSession.notes && (
-            <div className="mt-4 rounded-2xl bg-amber-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.1em] text-amber-700">Notes</p>
-              <p className="mt-1 text-sm text-amber-900">{selectedSession.notes}</p>
-            </div>
-          )}
+      {error && <div className="rounded-2xl border border-red-300 bg-red-50 px-4 py-3 text-red-700 text-sm">{error}</div>}
 
-          {/* Resolve Form for Active Sessions */}
-          {selectedSession.status === 'active' && (
-            <div className="mt-6 rounded-2xl border border-brand-100 bg-brand-50 p-4">
-              <h3 className="font-semibold text-brand-950">Resolve SOS Session</h3>
-              <div className="mt-3">
-                <textarea
-                  value={resolution}
-                  onChange={(e) => setResolution(e.target.value)}
-                  placeholder="Enter resolution details..."
-                  className="w-full rounded-2xl border border-brand-200 px-4 py-3 text-sm text-brand-900 placeholder-brand-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200"
-                  rows={3}
-                />
-              </div>
-              <div className="mt-3 flex justify-end">
-                <Button
-                  variant="primary"
-                  onClick={handleResolve}
-                  isLoading={actionLoading}
-                  disabled={!resolution.trim()}
-                >
-                  Mark as Resolved
-                </Button>
-              </div>
-            </div>
-          )}
+      <div className="flex flex-wrap gap-2">
+        {STATUS_TABS.map(s => (
+          <button key={s} onClick={() => setStatusFilter(s)}
+            className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-colors ${statusFilter === s ? 'bg-slate-950 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
+            {s.charAt(0).toUpperCase() + s.slice(1)}
+          </button>
+        ))}
+      </div>
+
+      {isLoading ? (
+        <div className="flex h-48 items-center justify-center text-slate-500">Loading...</div>
+      ) : sessions.length === 0 ? (
+        <Card>
+          <div className="flex h-40 items-center justify-center text-slate-500">No SOS sessions found.</div>
         </Card>
+      ) : (
+        <div className="space-y-3">
+          {sessions.map(session => (
+            <button
+              key={session.id}
+              onClick={() => void openSession(session.id)}
+              className="w-full text-left rounded-2xl border border-slate-200 bg-white px-5 py-4 hover:border-slate-400 transition-colors"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="font-semibold text-slate-950 font-mono text-sm">{session.id}</p>
+                  {session.ride_id && <p className="text-xs text-slate-500 mt-0.5">Ride: {session.ride_id as string}</p>}
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-slate-500">{new Date(session.created_at).toLocaleString()}</span>
+                  <span className={`px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wide ${statusColor(session.status)}`}>
+                    {session.status}
+                  </span>
+                </div>
+              </div>
+              {session.triggered_by && (
+                <p className="text-sm text-slate-600 mt-2">Triggered by: {session.triggered_by as string}</p>
+              )}
+            </button>
+          ))}
+        </div>
       )}
     </div>
   )

@@ -195,7 +195,7 @@ export const FinanceView: React.FC = () => {
     const currentOffset = resetOffset ? 0 : offset
 
     try {
-      const params: Record<string, any> = {
+      const params: { limit: number; offset: number; status?: string; method?: string; type?: string; date_from?: string; date_to?: string; amount_min?: number; amount_max?: number; has_refund?: boolean; search?: string } = {
         limit: PAGE_SIZE,
         offset: currentOffset,
       }
@@ -237,7 +237,7 @@ export const FinanceView: React.FC = () => {
     // Export all matching transactions (not just current page)
     // We fetch all with current filters but no pagination
     setIsLoading(true)
-    const params: Record<string, any> = { limit: 500, offset: 0 }
+    const params: { limit: number; offset: number; status?: string; method?: string; type?: string; date_from?: string; date_to?: string; amount_min?: number; amount_max?: number; has_refund?: boolean; search?: string } = { limit: 500, offset: 0 }
     if (statusFilter) params.status = statusFilter
     if (methodFilter) params.method = methodFilter
     if (typeFilter) params.type = typeFilter
