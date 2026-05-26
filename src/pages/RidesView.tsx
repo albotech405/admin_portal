@@ -136,8 +136,8 @@ export const RidesView: React.FC = () => {
   useEffect(() => {
     if (activeTab === 'ride_requests') {
       const interval = setInterval(() => {
-        loadRequests()
-        loadMarketplaceData()
+        loadRequests(true)
+        loadMarketplaceData(true)
       }, 30000)
       return () => clearInterval(interval)
     }
@@ -173,8 +173,8 @@ export const RidesView: React.FC = () => {
     }
   }
 
-  const loadRequests = async () => {
-    setIsLoading(true)
+  const loadRequests = async (silent = false) => {
+    if (!silent) setIsLoading(true)
     try {
       const data = await supabaseService.getActiveRideRequests()
       setRequests(data)
@@ -182,19 +182,19 @@ export const RidesView: React.FC = () => {
     } catch (error) {
       console.error('Failed to load ride requests:', error)
     } finally {
-      setIsLoading(false)
+      if (!silent) setIsLoading(false)
     }
   }
 
-  const loadMarketplaceData = async () => {
-    setIsMarketplaceLoading(true)
+  const loadMarketplaceData = async (silent = false) => {
+    if (!silent) setIsMarketplaceLoading(true)
     try {
       const data = await supabaseService.getMarketplaceData()
       setMarketplaceRequests(data.requests || [])
     } catch (error) {
       console.error('Failed to load marketplace data:', error)
     } finally {
-      setIsMarketplaceLoading(false)
+      if (!silent) setIsMarketplaceLoading(false)
     }
   }
 

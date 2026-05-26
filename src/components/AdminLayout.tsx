@@ -19,6 +19,11 @@ const navSections: Array<{ title: string; items: NavItem[] }> = [
         description: 'Launch readiness, live metrics, and blockers',
       },
       {
+        label: 'Operations',
+        to: '/operations',
+        description: 'Driver approval, payments, add drivers & customers',
+      },
+      {
         label: 'Rides',
         to: '/rides',
         description: 'Trip browser and active ride monitoring',
@@ -108,18 +113,19 @@ const navSections: Array<{ title: string; items: NavItem[] }> = [
 ]
 
 export const AdminLayout: React.FC = () => {
-  const { isLoading, isAuthenticated } = useAuth()
-
-  if (isLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-950">
-        <div className="h-10 w-10 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
-      </div>
-    )
-  }
+  const { isLoading, isAuthenticated, logout, user } = useAuth()
 
   if (!isAuthenticated) {
-    return <LoginPage onLogin={() => {}} />
+    return (
+      <div className="relative">
+        <LoginPage onLogin={() => {}} />
+        {isLoading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-white/60 backdrop-blur-sm">
+            <div className="h-10 w-10 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
+          </div>
+        )}
+      </div>
+    )
   }
 
   return (
@@ -127,10 +133,13 @@ export const AdminLayout: React.FC = () => {
       <div className="flex min-h-screen">
         <aside className="hidden w-80 shrink-0 border-r border-blue-950/30 bg-[linear-gradient(180deg,#0f172a_0%,#10213d_52%,#0f172a_100%)] text-white lg:block">
           <div className="border-b border-white/10 px-6 py-6">
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-blue-200">
-              Admin Portal
-            </p>
-            <h1 className="mt-3 text-2xl font-bold">Albo Taxi</h1>
+            <div className="flex items-center gap-3">
+              <img src="/albo_logo.jpeg" alt="Albo Taxi" className="h-10 w-10 rounded-xl object-cover" />
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-blue-200">Admin Portal</p>
+                <h1 className="text-xl font-bold">Albo Taxi</h1>
+              </div>
+            </div>
           </div>
 
           <nav className="space-y-8 px-4 py-6">
@@ -168,6 +177,17 @@ export const AdminLayout: React.FC = () => {
           <header className="sticky top-0 z-30 border-b border-white/60 bg-white/70 backdrop-blur-xl">
             <div className="flex items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
               <p className="text-lg font-semibold text-slate-900">Albo Taxi Admin</p>
+              <div className="flex items-center gap-3">
+                {user && (
+                  <span className="hidden text-sm text-slate-500 sm:block">{user.email}</span>
+                )}
+                <button
+                  onClick={() => logout()}
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-red-50 hover:border-red-200 hover:text-red-600"
+                >
+                  Sign out
+                </button>
+              </div>
             </div>
           </header>
 

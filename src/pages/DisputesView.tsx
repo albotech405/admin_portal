@@ -102,6 +102,36 @@ export const DisputesView: React.FC = () => {
 
     if (result) {
       setActionResult(result.message || 'Action completed successfully')
+
+      // Send push notification to the relevant party
+      const dispute = selectedDispute
+      if (dispute) {
+        const raisedByCustomer = dispute.dispute_raised_by === 'customer'
+        const raisedByDriver = dispute.dispute_raised_by === 'driver'
+        const notifyCustomer = (title: string, message: string) => {
+          if (dispute.customer_id) supabaseService.sendTargetedNotification({ user_ids: [dispute.customer_id], title, message }).catch(() => {})
+        }
+        const notifyDriver = (title: string, message: string) => {
+          if (dispute.driver_id) supabaseService.sendTargetedNotification({ user_ids: [dispute.driver_id], title, message }).catch(() => {})
+        }
+        switch (confirmAction) {
+          case 'refund':
+            notifyCustomer('Dispute Resolved – Refund Issued', 'Your dispute has been reviewed and a refund has been issued to your account.')
+            break
+          case 'charge-driver':
+            notifyDriver('Dispute Resolution – Charge Applied', 'A dispute raised against you has been resolved. A charge has been applied to your account.')
+            break
+          case 'dismiss':
+            if (raisedByCustomer) notifyCustomer('Dispute Closed', 'Your dispute has been reviewed and dismissed by our team.')
+            else if (raisedByDriver) notifyDriver('Dispute Closed', 'Your dispute has been reviewed and dismissed by our team.')
+            break
+          case 'escalate':
+            if (raisedByCustomer) notifyCustomer('Dispute Escalated', 'Your dispute has been escalated for further review. Our team will be in touch.')
+            else if (raisedByDriver) notifyDriver('Dispute Escalated', 'Your dispute has been escalated for further review. Our team will be in touch.')
+            break
+        }
+      }
+
       // Refresh the list and update selected dispute
       await loadDisputes()
       // Update selected dispute status locally

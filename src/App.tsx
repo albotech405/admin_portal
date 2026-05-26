@@ -19,6 +19,7 @@ import {
   DisputesView,
   CancellationAnalyticsView,
   PricingView,
+  OperationsView,
 } from './pages'
 
 function App() {
@@ -47,6 +48,7 @@ function App() {
           <Route path="/disputes" element={<DisputesView />} />
           <Route path="/admin-users" element={<AdminUsersView />} />
           <Route path="/cancellations" element={<CancellationAnalyticsView />} />
+          <Route path="/operations" element={<OperationsView />} />
           <Route path="/wallet/:driverId" element={<WalletView />} />
         </Route>
       </Routes>

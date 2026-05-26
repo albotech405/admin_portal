@@ -5,6 +5,25 @@ import { SosSession, supabaseService } from '../services/supabaseService'
 const STATUS_TABS = ['all', 'active', 'resolved', 'cancelled'] as const
 type StatusTab = typeof STATUS_TABS[number]
 
+const EXCLUDED_SOS_KEYS = ['id', 'ride_id', 'triggered_by', 'status', 'created_at', 'resolved_by', 'resolved_at']
+
+const fmtKey = (k: string) => k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+
+const fmtVal = (key: string, val: unknown): string => {
+  if (val === null || val === undefined) return '—'
+  if (typeof val === 'boolean') return val ? 'Yes' : 'No'
+  if (Array.isArray(val)) return val.length === 0 ? 'None' : `${val.length} item${val.length === 1 ? '' : 's'}`
+  if (typeof val === 'string' && (key.endsWith('_at') || key === 'expires_at')) {
+    const d = new Date(val)
+    return isNaN(d.getTime()) ? val : d.toLocaleString()
+  }
+  if ((key.includes('latitude') || key.includes('longitude')) && typeof val === 'number') {
+    return Number(val).toFixed(6)
+  }
+  if (typeof val === 'number') return String(val)
+  return String(val)
+}
+
 export const SafetyView: React.FC = () => {
   const [sessions, setSessions] = useState<SosSession[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -49,6 +68,13 @@ export const SafetyView: React.FC = () => {
     try {
       setIsProcessing(true)
       await supabaseService.resolveSosSession(selectedSession.id, resolveNotes)
+      if (selectedSession.triggered_by) {
+        supabaseService.sendTargetedNotification({
+          user_ids: [selectedSession.triggered_by],
+          title: 'Safety Alert Resolved',
+          message: 'Your safety alert has been reviewed and resolved by an admin. If you need further assistance, please contact support.',
+        }).catch(() => {})
+      }
       const updated = { ...selectedSession, status: 'resolved', resolved_at: new Date().toISOString() }
       setSelectedSession(updated)
       setSessions(sessions.map(s => s.id === selectedSession.id ? updated : s))
@@ -115,21 +141,23 @@ export const SafetyView: React.FC = () => {
             </dl>
           </Card>
 
-          {Object.keys(selectedSession).filter(k => !['id','ride_id','triggered_by','status','created_at','resolved_by','resolved_at'].includes(k)).length > 0 && (
-            <Card>
-              <h2 className="text-lg font-semibold text-slate-950 mb-4">Additional Data</h2>
-              <pre className="text-xs text-slate-700 whitespace-pre-wrap overflow-x-auto">
-                {JSON.stringify(
-                  Object.fromEntries(
-                    Object.entries(selectedSession).filter(([k]) =>
-                      !['id','ride_id','triggered_by','status','created_at','resolved_by','resolved_at'].includes(k)
-                    )
-                  ),
-                  null, 2
-                )}
-              </pre>
-            </Card>
-          )}
+          {(() => {
+            const extra = Object.entries(selectedSession).filter(([k]) => !EXCLUDED_SOS_KEYS.includes(k))
+            if (extra.length === 0) return null
+            return (
+              <Card>
+                <h2 className="text-lg font-semibold text-slate-950 mb-4">Additional Data</h2>
+                <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+                  {extra.map(([key, val]) => (
+                    <div key={key}>
+                      <dt className="text-slate-500 text-xs">{fmtKey(key)}</dt>
+                      <dd className="font-medium text-slate-950 mt-0.5 break-all">{fmtVal(key, val)}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </Card>
+            )
+          })()}
         </div>
 
         <Modal isOpen={showResolveModal} onClose={() => { setShowResolveModal(false); setResolveNotes('') }} title="Resolve SOS Session">

@@ -111,6 +111,13 @@ export const SupportView: React.FC = () => {
     try {
       setIsUpdating(true)
       await supabaseService.updateTicket(selectedTicket.id, { status })
+      if ((status === 'resolved' || status === 'closed') && selectedTicket.user_id) {
+        supabaseService.sendTargetedNotification({
+          user_ids: [selectedTicket.user_id as string],
+          title: status === 'resolved' ? 'Support Ticket Resolved' : 'Support Ticket Closed',
+          message: `Your support ticket "${selectedTicket.subject || 'your request'}" has been ${status}. Thank you for reaching out.`,
+        }).catch(() => {})
+      }
       const updated = { ...selectedTicket, status }
       setSelectedTicket(updated)
       setTickets(tickets.map(t => t.id === selectedTicket.id ? { ...t, status } : t))

@@ -1,7 +1,7 @@
 import React from 'react'
 
 interface TableProps<T extends object = Record<string, unknown>> {
-  columns: Array<{ key: string; label: string; width?: string }>
+  columns: Array<{ key: string; label: string; width?: string; render?: (value: unknown, row: T) => React.ReactNode }>
   data: Array<T>
   onRowClick?: (row: T) => void
   rowClassName?: (row: T) => string
@@ -56,7 +56,9 @@ export const Table = <T extends object>({
             >
               {columns.map((col) => (
                 <td key={col.key} className="px-4 py-3 text-slate-900">
-                  {String((row as Record<string, unknown>)[String(col.key)] || '-')}
+                  {col.render
+                    ? col.render((row as Record<string, unknown>)[col.key], row)
+                    : String((row as Record<string, unknown>)[col.key] ?? '-')}
                 </td>
               ))}
             </tr>

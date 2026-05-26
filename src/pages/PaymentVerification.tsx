@@ -43,7 +43,11 @@ export const PaymentVerification: React.FC = () => {
     try {
       setIsProcessing(true)
       await supabaseService.approvePaymentRequest(selectedPayment.id)
-
+      supabaseService.sendTargetedNotification({
+        user_ids: [selectedPayment.driver_id],
+        title: 'Wallet Top-up Approved',
+        message: `Your wallet top-up of ${selectedPayment.amount.toLocaleString()} CDF has been approved and credited to your account.`,
+      }).catch(() => {})
       // Remove from list
       setPayments(payments.filter((p) => p.id !== selectedPayment.id))
       setShowDetailView(false)
@@ -63,7 +67,11 @@ export const PaymentVerification: React.FC = () => {
     try {
       setIsProcessing(true)
       await supabaseService.rejectPaymentRequest(selectedPayment.id, rejectReason)
-
+      supabaseService.sendTargetedNotification({
+        user_ids: [selectedPayment.driver_id],
+        title: 'Wallet Top-up Rejected',
+        message: `Your wallet top-up request was rejected. ${rejectReason ? 'Reason: ' + rejectReason : 'Please contact support for more details.'}`,
+      }).catch(() => {})
       // Remove from list
       setPayments(payments.filter((p) => p.id !== selectedPayment.id))
       setShowDetailView(false)
@@ -79,34 +87,64 @@ export const PaymentVerification: React.FC = () => {
     }
   }
 
-  const tableColumns = [
+  type PaymentRow = PaymentRequest & { driver_name: string; amount_fmt: string; ref_fmt: string; date_fmt: string }
+
+  const tableColumns: Array<{ key: string; label: string; width?: string; render?: (value: unknown, row: PaymentRow) => React.ReactNode }> = [
     { key: 'driver_name', label: 'Driver' },
-    { key: 'amount', label: 'Amount', width: 'w-24' },
+    { key: 'amount_fmt', label: 'Amount', width: 'w-28' },
     { key: 'payment_method', label: 'Method', width: 'w-32' },
-    { key: 'reference_number', label: 'Reference', width: 'w-36' },
-    { key: 'status', label: 'Status', width: 'w-24' },
-    { key: 'submitted_at', label: 'Date', width: 'w-32' },
+    { key: 'ref_fmt', label: 'Reference', width: 'w-36' },
+    {
+      key: 'proof_image_url',
+      label: 'Proof',
+      width: 'w-24',
+      render: (_value, row) => {
+        const url = row.proof_image_url
+        if (!url) return <span className="text-slate-400 text-xs">—</span>
+        const isPdf = url.toLowerCase().includes('.pdf')
+        if (isPdf) return (
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="inline-flex items-center gap-1 rounded-lg bg-red-50 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-100"
+          >
+            PDF
+          </a>
+        )
+        return (
+          <img
+            src={url}
+            alt="proof"
+            className="h-10 w-14 rounded-lg border border-slate-200 object-cover"
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+          />
+        )
+      },
+    },
+    { key: 'date_fmt', label: 'Date', width: 'w-32' },
   ]
 
   if (!showDetailView) {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Payment Verification</h1>
-          <p className="text-gray-600 mt-2">
-            Review and approve pending payment requests from drivers
+          <h1 className="text-3xl font-bold text-brand-950">Payment Verification</h1>
+          <p className="text-brand-600 mt-2">
+            Review and approve pending wallet top-up requests from drivers
           </p>
         </div>
 
         {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+          <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             {error}
           </div>
         )}
 
         <Card>
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-semibold">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-xl font-semibold text-brand-950">
               Pending Requests ({payments.length})
             </h2>
             <Button variant="secondary" size="sm" onClick={loadPayments}>
@@ -115,13 +153,14 @@ export const PaymentVerification: React.FC = () => {
           </div>
           <Table
             columns={tableColumns}
-            data={payments.map((p: PaymentRequest) => ({
+            data={payments.map((p: PaymentRequest): PaymentRow => ({
               ...p,
               driver_name: p.full_name || p.phone_number || p.driver_id,
-              amount: `$${p.amount}`,
-              reference_number: p.reference_number || 'Pending',
+              amount_fmt: `${p.amount.toLocaleString()} CDF`,
+              ref_fmt: p.reference_number || '—',
+              date_fmt: new Date(p.submitted_at).toLocaleDateString(),
             }))}
-            onRowClick={(row: any) => {
+            onRowClick={(row) => {
               const payment = payments.find((p) => p.id === row.id)
               if (payment) {
                 setSelectedPayment(payment)
@@ -138,6 +177,8 @@ export const PaymentVerification: React.FC = () => {
   // Detail view
   if (!selectedPayment) return null
 
+  const driverName = selectedPayment.full_name || selectedPayment.phone_number || selectedPayment.driver_id
+
   return (
     <div className="space-y-6">
       <button
@@ -150,71 +191,84 @@ export const PaymentVerification: React.FC = () => {
         ← Back to List
       </button>
 
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">Payment Details</h1>
-        <div className="flex items-center gap-3 mt-2">
-          <span className="text-lg">
-            Driver: {selectedPayment.full_name || selectedPayment.phone_number || selectedPayment.driver_id}
-          </span>
-          <Badge status={selectedPayment.status}>
-            {selectedPayment.status.charAt(0).toUpperCase() +
-              selectedPayment.status.slice(1)}
-          </Badge>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-brand-950">Payment Details</h1>
+          <p className="mt-1 text-brand-600">{driverName}</p>
         </div>
+        <Badge status={selectedPayment.status}>
+          {selectedPayment.status.charAt(0).toUpperCase() + selectedPayment.status.slice(1)}
+        </Badge>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left: Document Preview */}
+      {error && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        {/* Left: Proof preview */}
         <div className="lg:col-span-2">
           <Card>
-            <h2 className="text-xl font-semibold mb-4">Payment Proof</h2>
-            <DocumentPreview
-              fileUrl={selectedPayment.proof_image_url}
-              fileType={getProofType(selectedPayment.proof_image_url)}
-              fileName={`proof-${selectedPayment.id}`}
-            />
+            <h2 className="mb-4 text-lg font-semibold text-brand-950">Payment Proof</h2>
+            {selectedPayment.proof_image_url ? (
+              <DocumentPreview
+                fileUrl={selectedPayment.proof_image_url}
+                fileType={getProofType(selectedPayment.proof_image_url)}
+                fileName={`proof-${selectedPayment.id}`}
+              />
+            ) : (
+              <div className="flex h-40 items-center justify-center rounded-2xl border border-dashed border-slate-300 text-sm text-slate-400">
+                No proof uploaded
+              </div>
+            )}
           </Card>
         </div>
 
-        {/* Right: Details and Actions */}
+        {/* Right: Driver info + actions */}
         <div className="space-y-4">
           <Card>
-            <h2 className="text-lg font-semibold mb-4">Request Details</h2>
+            <h2 className="mb-4 text-lg font-semibold text-brand-950">Driver Info</h2>
             <div className="space-y-3 text-sm">
               <div>
-                <p className="text-gray-600">Amount</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  ${selectedPayment.amount}
-                </p>
+                <p className="text-slate-500">Name</p>
+                <p className="font-semibold text-brand-950">{selectedPayment.full_name || '—'}</p>
               </div>
-              <div className="border-t pt-3">
-                <p className="text-gray-600">Driver Phone</p>
-                <p className="font-semibold">{selectedPayment.phone_number || 'N/A'}</p>
+              <div className="border-t border-slate-100 pt-3">
+                <p className="text-slate-500">Phone</p>
+                <p className="font-semibold text-brand-950">{selectedPayment.phone_number || '—'}</p>
               </div>
-              <div className="border-t pt-3">
-                <p className="text-gray-600">Payment Method</p>
-                <p className="font-semibold">{selectedPayment.payment_method}</p>
+              <div className="border-t border-slate-100 pt-3">
+                <p className="text-slate-500">Sender Name</p>
+                <p className="font-semibold text-brand-950">{selectedPayment.sender_name || '—'}</p>
               </div>
-              <div className="border-t pt-3">
-                <p className="text-gray-600">Sender Name</p>
-                <p className="font-semibold">{selectedPayment.sender_name || 'N/A'}</p>
+            </div>
+          </Card>
+
+          <Card>
+            <h2 className="mb-4 text-lg font-semibold text-brand-950">Request Details</h2>
+            <div className="space-y-3 text-sm">
+              <div>
+                <p className="text-slate-500">Amount</p>
+                <p className="text-2xl font-bold text-green-600">{selectedPayment.amount.toLocaleString()} CDF</p>
               </div>
-              <div className="border-t pt-3">
-                <p className="text-gray-600">Reference Number</p>
-                <p className="font-semibold font-mono">
-                  {selectedPayment.reference_number || 'Pending assignment'}
-                </p>
+              <div className="border-t border-slate-100 pt-3">
+                <p className="text-slate-500">Payment Method</p>
+                <p className="font-semibold capitalize text-brand-950">{selectedPayment.payment_method.replace(/_/g, ' ')}</p>
               </div>
-              <div className="border-t pt-3">
-                <p className="text-gray-600">Submitted Date</p>
-                <p className="font-semibold">
-                  {new Date(selectedPayment.submitted_at).toLocaleDateString()}
-                </p>
+              <div className="border-t border-slate-100 pt-3">
+                <p className="text-slate-500">Reference Number</p>
+                <p className="font-mono font-semibold text-brand-950">{selectedPayment.reference_number || '—'}</p>
+              </div>
+              <div className="border-t border-slate-100 pt-3">
+                <p className="text-slate-500">Date Submitted</p>
+                <p className="font-semibold text-brand-950">{new Date(selectedPayment.submitted_at).toLocaleString()}</p>
               </div>
               {selectedPayment.notes && (
-                <div className="border-t pt-3">
-                  <p className="text-gray-600">Notes</p>
-                  <p className="text-sm">{selectedPayment.notes}</p>
+                <div className="border-t border-slate-100 pt-3">
+                  <p className="text-slate-500">Notes</p>
+                  <p className="text-brand-700">{selectedPayment.notes}</p>
                 </div>
               )}
             </div>
@@ -252,19 +306,22 @@ export const PaymentVerification: React.FC = () => {
         confirmText="Reject"
         confirmVariant="danger"
         isConfirmLoading={isProcessing}
+        confirmDisabled={!rejectReason.trim()}
       >
         <div className="space-y-4">
-          <p className="text-gray-700">
-            Please provide a reason for rejecting this payment request.
+          <p className="text-sm text-slate-600">
+            Please provide a reason for rejecting this payment request. The driver will be notified.
           </p>
           <textarea
             value={rejectReason}
             onChange={(e) => setRejectReason(e.target.value)}
-            placeholder="Enter rejection reason..."
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+            placeholder="Enter rejection reason…"
+            className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
             rows={4}
-            required
           />
+          {!rejectReason.trim() && (
+            <p className="text-xs text-red-500">A reason is required to reject.</p>
+          )}
         </div>
       </Modal>
     </div>

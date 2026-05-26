@@ -43,14 +43,14 @@ export const Dashboard: React.FC = () => {
   const navigate = useNavigate()
 
   useEffect(() => {
-    loadMetrics()
-    const interval = setInterval(loadMetrics, 30000)
+    loadMetrics(true)
+    const interval = setInterval(() => loadMetrics(false), 30000)
     return () => clearInterval(interval)
   }, [])
 
-  const loadMetrics = async () => {
+  const loadMetrics = async (showLoader = false) => {
     try {
-      setIsLoading(true)
+      if (showLoader) setIsLoading(true)
       const data = await supabaseService.getDashboardMetrics()
       setMetrics(data)
       setError(null)
@@ -58,7 +58,7 @@ export const Dashboard: React.FC = () => {
       setError(err instanceof Error ? err.message : 'Failed to load dashboard metrics')
       console.error(err)
     } finally {
-      setIsLoading(false)
+      if (showLoader) setIsLoading(false)
     }
   }
 

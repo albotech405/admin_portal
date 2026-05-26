@@ -34,7 +34,7 @@ const ROLE_RANK: Record<AdminRole, number> = {
   super_admin: 4,
 }
 
-const SESSION_TIMEOUT_MS = 30 * 60 * 1000  // 30 min
+const SESSION_TIMEOUT_MS = 8 * 60 * 60 * 1000  // 8 hours idle timeout
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
@@ -44,7 +44,7 @@ export function useAuth(): AuthContextValue {
   return ctx
 }
 
-export function canRoleAccess(userRole: AdminRole, required: AdminRole | AdminRole[]): boolean {
+function canRoleAccess(userRole: AdminRole, required: AdminRole | AdminRole[]): boolean {
   const requiredArr = Array.isArray(required) ? required : [required]
   if (userRole === 'super_admin') return true
   return requiredArr.some(r => ROLE_RANK[userRole] >= ROLE_RANK[r])
@@ -68,15 +68,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = useCallback(async () => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
-    try {
-      if (sessionIdRef.current) {
-        await supabaseService.invalidateAdminSession(sessionIdRef.current)
-      }
-    } catch { /* non-critical */ }
+    // Reset resolvingRef immediately so a fast re-login is never blocked by an
+    // in-flight resolveAdminUser call that was started before this logout.
+    resolvingRef.current = false
+    const sid = sessionIdRef.current
     sessionIdRef.current = null
     isAuthenticatedRef.current = false
-    await supabase.auth.signOut()
+    // Optimistically clear UI before async calls complete
     setState({ user: null, sessionId: null, isLoading: false, isAuthenticated: false, sessionExpiresAt: null })
+    try {
+      if (sid) await supabaseService.invalidateAdminSession(sid)
+    } catch { /* non-critical */ }
+    await supabase.auth.signOut()
   }, [])  // stable — reads sessionId from ref, not state
 
   const scheduleTimeout = useCallback((expiresAt: number) => {
@@ -108,21 +111,83 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => events.forEach(e => window.removeEventListener(e, handler))
   }, [refreshSession])  // refreshSession is now stable → registers only once
 
+  // When the tab regains visibility (user switches back to the portal after it was
+  // in the background), proactively ask Supabase to refresh the session so the
+  // stored token is always current before the next API call.
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && isAuthenticatedRef.current) {
+        supabase.auth.refreshSession().catch(() => { /* handled by TOKEN_REFRESHED / SIGNED_OUT */ })
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [])
+
   // Boot: onAuthStateChange fires INITIAL_SESSION immediately for existing sessions,
   // so no separate init() call is needed — avoids double resolveAdminUser on boot.
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    let resolved = false
+
+    const handleSession = async (session: { access_token: string; user?: { id: string } } | null) => {
+      if (resolved) return
+      resolved = true
+      clearTimeout(fallbackTimer)
       if (!session) {
         setState({ user: null, sessionId: null, isLoading: false, isAuthenticated: false, sessionExpiresAt: null })
         return
       }
-      await resolveAdminUser(session.access_token)
+      await resolveAdminUser(session.access_token, session.user?.id ?? '')
+    }
+
+    // Safety fallback: if neither getSession nor onAuthStateChange resolves within 5 s
+    // (e.g. Supabase key format issue or network problem), clear the loading spinner.
+    const fallbackTimer = setTimeout(() => {
+      if (!resolved) {
+        resolved = true
+        setState(s => s.isLoading ? { ...s, isLoading: false } : s)
+      }
+    }, 2000)
+
+    // Explicitly fetch the current session — faster than waiting for INITIAL_SESSION
+    // event, and works with both legacy JWT and newer sb_publishable_* key formats.
+    supabase.auth.getSession().then(({ data: { session } }) => handleSession(session))
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      // Keep the stored token current whenever Supabase silently refreshes it.
+      // This is non-blocking and must not call any method that acquires the SDK lock
+      // (e.g. getSession) because this callback runs while the lock may be held.
+      if (_event === 'TOKEN_REFRESHED' && session) {
+        supabaseService.setAuthToken(session.access_token)
+        // Extend the idle timeout — a fresh token means the session is still active.
+        if (isAuthenticatedRef.current) {
+          if (timeoutRef.current) clearTimeout(timeoutRef.current)
+          const newExpiry = Date.now() + SESSION_TIMEOUT_MS
+          timeoutRef.current = setTimeout(() => logout(), SESSION_TIMEOUT_MS)
+          setState(s => s.isAuthenticated ? { ...s, sessionExpiresAt: newExpiry } : s)
+        }
+        return
+      }
+
+      // Skip INITIAL_SESSION if getSession already resolved it
+      if (!resolved || _event !== 'INITIAL_SESSION') {
+        resolved = true
+        clearTimeout(fallbackTimer)
+        if (!session) {
+          setState({ user: null, sessionId: null, isLoading: false, isAuthenticated: false, sessionExpiresAt: null })
+          return
+        }
+        await resolveAdminUser(session.access_token, session.user?.id ?? '')
+      }
     })
 
-    return () => subscription.unsubscribe()
+    return () => {
+      clearTimeout(fallbackTimer)
+      subscription.unsubscribe()
+    }
   }, [])
 
-  const resolveAdminUser = async (token: string) => {
+  const resolveAdminUser = async (token: string, userId: string) => {
     if (resolvingRef.current) return
     resolvingRef.current = true
     supabaseService.setAuthToken(token)
@@ -142,7 +207,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       setState({
         user: {
-          id: (await supabase.auth.getUser()).data.user?.id ?? '',
+          id: userId,
           email: roleData.email ?? '',
           full_name: roleData.full_name ?? null,
           admin_role: (roleData.admin_role ?? 'readonly') as AdminRole,

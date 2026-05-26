@@ -2,6 +2,20 @@ import React, { useEffect, useState } from 'react'
 import { Card, Button } from '../components'
 import { AdminLog, supabaseService } from '../services/supabaseService'
 
+const fmtKey = (k: string) => k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+
+const fmtVal = (key: string, val: unknown): string => {
+  if (val === null || val === undefined) return '—'
+  if (typeof val === 'boolean') return val ? 'Yes' : 'No'
+  if (Array.isArray(val)) return val.length === 0 ? 'None' : val.map(String).join(', ')
+  if (typeof val === 'object') return JSON.stringify(val)
+  if (typeof val === 'string' && key.endsWith('_at')) {
+    const d = new Date(val)
+    return isNaN(d.getTime()) ? val : d.toLocaleString()
+  }
+  return String(val)
+}
+
 const auditAreas = [
   'Immutable write log with actor, entity, before, after, reason, and timestamp',
   'Privacy operations for user data export and deletion status visibility',
@@ -105,9 +119,14 @@ export const AuditView: React.FC = () => {
                   </p>
                 </div>
                 {log.metadata && Object.keys(log.metadata).length > 0 && (
-                  <pre className="mt-3 overflow-x-auto rounded-2xl bg-slate-950 px-4 py-3 text-xs text-slate-100">
-                    {JSON.stringify(log.metadata, null, 2)}
-                  </pre>
+                  <dl className="mt-3 grid grid-cols-1 gap-2 rounded-2xl bg-slate-50 border border-slate-200 px-4 py-3 text-xs sm:grid-cols-2">
+                    {Object.entries(log.metadata).map(([key, val]) => (
+                      <div key={key}>
+                        <dt className="text-slate-500">{fmtKey(key)}</dt>
+                        <dd className="font-medium text-slate-950 mt-0.5 break-all">{fmtVal(key, val)}</dd>
+                      </div>
+                    ))}
+                  </dl>
                 )}
               </div>
             ))}

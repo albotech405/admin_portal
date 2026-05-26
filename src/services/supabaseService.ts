@@ -492,19 +492,11 @@ class AlboTaxService {
       },
     })
 
-    // Always fetch the freshest token from the active Supabase session.
-    this.api.interceptors.request.use(async (config) => {
-      let token = ''
-      try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession()
-        token = session?.access_token ?? ''
-      } catch {
-        // getSession failed – fall back to manually set token
-      }
-
-      if (!token) token = this.jwtToken
+    // Use the stored token (kept fresh by setAuthToken() on every auth event).
+    // Calling supabase.auth.getSession() here caused lock contention with the
+    // Navigator LockManager API, deadlocking requests made inside onAuthStateChange callbacks.
+    this.api.interceptors.request.use((config) => {
+      const token = this.jwtToken
 
       if (token) {
         config.headers = config.headers ?? {}
@@ -515,6 +507,30 @@ class AlboTaxService {
 
       return config
     })
+
+    // Extract backend error detail so callers see the real message, not "Request failed with status code 4xx"
+    this.api.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (axios.isAxiosError(error) && error.response) {
+          const data = error.response.data as Record<string, unknown> | undefined
+          const detail =
+            (typeof data?.detail === 'string' && data.detail) ||
+            (typeof data?.message === 'string' && data.message) ||
+            (typeof data?.error === 'string' && data.error) ||
+            null
+          if (detail) {
+            const wrapped = new ServiceRequestError(detail, {
+              status: error.response.status,
+              url: error.config?.url,
+              backendDetail: detail,
+            })
+            return Promise.reject(wrapped)
+          }
+        }
+        return Promise.reject(error)
+      }
+    )
   }
 
   setAuthToken(token: string) {
@@ -666,6 +682,22 @@ class AlboTaxService {
     }
   }
 
+  async createDriver(form: {
+    full_name: string
+    phone_number: string
+    email?: string
+    license_number: string
+    license_expiry: string
+    vehicle_type: string
+  }): Promise<void> {
+    try {
+      await this.api.post('/drivers/admin/create', form)
+    } catch (error) {
+      console.error('Error creating driver:', error)
+      throw error
+    }
+  }
+
   /**
    * Get detailed information about a specific driver
    */
@@ -722,6 +754,26 @@ class AlboTaxService {
       return response.data
     } catch (error) {
       console.error('Error unsuspending driver:', error)
+      throw error
+    }
+  }
+
+  async approveDocument(driverId: string, documentId: string): Promise<DriverDocument> {
+    try {
+      const response = await this.api.patch(`/drivers/${driverId}/documents/${documentId}/approve`)
+      return response.data
+    } catch (error) {
+      console.error('Error approving document:', error)
+      throw error
+    }
+  }
+
+  async rejectDocument(driverId: string, documentId: string, reason?: string): Promise<DriverDocument> {
+    try {
+      const response = await this.api.patch(`/drivers/${driverId}/documents/${documentId}/reject`, { reason })
+      return response.data
+    } catch (error) {
+      console.error('Error rejecting document:', error)
       throw error
     }
   }
@@ -1454,6 +1506,19 @@ class AlboTaxService {
       return Array.isArray(response.data) ? response.data : response.data.customers || []
     } catch (error) {
       console.error('Error fetching customers:', error)
+      throw error
+    }
+  }
+
+  async createCustomer(form: {
+    full_name: string
+    phone_number: string
+    email?: string
+  }): Promise<void> {
+    try {
+      await this.api.post('/customers/admin/create', form)
+    } catch (error) {
+      console.error('Error creating customer:', error)
       throw error
     }
   }

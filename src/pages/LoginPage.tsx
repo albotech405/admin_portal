@@ -40,9 +40,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin, accessDenied }) =
     <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.2),_transparent_30%),linear-gradient(180deg,_#eff6ff_0%,_#f8fafc_100%)] px-4">
       <div className="w-full max-w-md rounded-[2rem] border border-white/70 bg-white/85 p-8 shadow-[0_30px_80px_-38px_rgba(30,64,175,0.45)] backdrop-blur">
         <div className="mb-8 text-center">
-          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-600 to-sky-400 text-xl font-bold text-white shadow-lg">
-            AT
-          </div>
+          <img src="/albo_logo.jpeg" alt="Albo Taxi" className="mx-auto h-16 w-16 rounded-2xl object-cover shadow-lg" />
           <h1 className="mt-5 text-3xl font-bold text-slate-950">Albo Taxi</h1>
           <p className="mt-1 text-slate-600">Admin portal</p>
         </div>
