@@ -20,12 +20,6 @@ const TIME_BANDS = [
   { value: 'night', label: 'Night (00:00–05:59)' },
 ] as const
 
-const CATEGORY_DESCRIPTIONS: Record<string, string> = {
-  standard: 'Default for cars + all motorcycles',
-  premium: 'Cars only — newer cars, AC required, vehicle year ≥ 2015',
-  lady_driver: 'Cars only, female drivers',
-}
-
 const METRICS_COLUMNS = [
   { key: 'category', label: 'Category' },
   { key: 'ride_volume', label: 'Ride Volume' },

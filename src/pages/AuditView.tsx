@@ -28,6 +28,14 @@ export const AuditView: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // Search/filter state
+  const [searchActor, setSearchActor] = useState('')
+  const [searchAction, setSearchAction] = useState('')
+  const [searchEntity, setSearchEntity] = useState('')
+  const [searchDateFrom, setSearchDateFrom] = useState('')
+  const [searchDateTo, setSearchDateTo] = useState('')
+  const [isSearching, setIsSearching] = useState(false)
+
   useEffect(() => {
     void loadLogs()
   }, [])
@@ -46,6 +54,37 @@ export const AuditView: React.FC = () => {
     }
   }
 
+  const handleSearch = async () => {
+    setIsSearching(true)
+    setError(null)
+    try {
+      const params: Record<string, string> = {}
+      if (searchActor.trim()) params.actor = searchActor.trim()
+      if (searchAction.trim()) params.action = searchAction.trim()
+      if (searchEntity.trim()) params.target_table = searchEntity.trim()
+      if (searchDateFrom) params.date_from = searchDateFrom
+      if (searchDateTo) params.date_to = searchDateTo
+      const data = await supabaseService.searchAuditLog(params)
+      setLogs(data.logs)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Search failed')
+    } finally { setIsSearching(false) }
+  }
+
+  const handleExport = async () => {
+    try {
+      const blob = await supabaseService.exportAuditLog()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `audit_log_${new Date().toISOString().slice(0, 10)}.csv`
+      document.body.appendChild(a); a.click()
+      document.body.removeChild(a); URL.revokeObjectURL(url)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Export failed')
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
@@ -53,14 +92,49 @@ export const AuditView: React.FC = () => {
         <h1 className="text-3xl font-bold text-slate-950">Audit & Compliance</h1>
         <p className="mt-2 max-w-3xl text-slate-600">
           Every admin write action must be attributable, exportable, and safe for regulated review.
-          Privacy workflows also need to surface backend blockers instead of encouraging manual data
-          scrubbing.
         </p>
         </div>
-        <Button variant="secondary" onClick={loadLogs}>
-          Refresh
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={loadLogs}>Refresh</Button>
+          <Button variant="secondary" onClick={handleExport}>Export CSV</Button>
+        </div>
       </div>
+
+      {/* Search form */}
+      <Card>
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500 mb-3">Search Logs</h2>
+        <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-5">
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-600">Actor (admin ID)</label>
+            <input value={searchActor} onChange={e => setSearchActor(e.target.value)} placeholder="user id or email"
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-600">Action</label>
+            <input value={searchAction} onChange={e => setSearchAction(e.target.value)} placeholder="approve_driver…"
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-600">Entity / Table</label>
+            <input value={searchEntity} onChange={e => setSearchEntity(e.target.value)} placeholder="drivers, rides…"
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-600">Date From</label>
+            <input type="date" value={searchDateFrom} onChange={e => setSearchDateFrom(e.target.value)}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-600">Date To</label>
+            <input type="date" value={searchDateTo} onChange={e => setSearchDateTo(e.target.value)}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
+          </div>
+        </div>
+        <div className="mt-3 flex gap-2">
+          <Button size="sm" variant="primary" onClick={handleSearch} disabled={isSearching}>{isSearching ? 'Searching…' : 'Search'}</Button>
+          <Button size="sm" variant="secondary" onClick={() => { setSearchActor(''); setSearchAction(''); setSearchEntity(''); setSearchDateFrom(''); setSearchDateTo(''); void loadLogs() }}>Clear</Button>
+        </div>
+      </Card>
 
       {error && (
         <div className="rounded-2xl border border-red-300 bg-red-50 px-4 py-3 text-red-700">

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react'
-import { GoogleMap, Marker, InfoWindow, useLoadScript, Circle } from '@react-google-maps/api'
+import { GoogleMap, Marker, InfoWindow, useLoadScript } from '@react-google-maps/api'
 import { DriverLocation } from '../services/supabaseService'
 
 const MAP_CONTAINER_STYLE: React.CSSProperties = {
@@ -27,8 +27,8 @@ export const LiveMap: React.FC<LiveMapProps> = ({
   lastUpdated,
 }) => {
   const [selectedDriver, setSelectedDriver] = useState<DriverLocation | null>(null)
-  const [mapCenter, setMapCenter] = useState(DEFAULT_CENTER)
-  const [mapZoom, setMapZoom] = useState(DEFAULT_ZOOM)
+  const [mapCenter] = useState(DEFAULT_CENTER)
+  const [mapZoom] = useState(DEFAULT_ZOOM)
   const mapRef = useRef<google.maps.Map | null>(null)
 
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || ''

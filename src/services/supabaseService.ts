@@ -1,5 +1,4 @@
 import axios, { AxiosInstance } from 'axios'
-import { supabase } from '../lib/supabase'
 
 class ServiceRequestError extends Error {
   readonly status?: number
@@ -58,6 +57,20 @@ export interface DriverDocument {
   document_type: string
   file_url: string
   status: 'pending' | 'under_review' | 'approved' | 'rejected'
+}
+
+export interface CreateDriverResponse {
+  id: string
+  full_name: string
+  phone_number: string
+  role: string
+  verification_status: string
+  otp_sent: boolean
+}
+
+export interface DriverDocumentUploadInput {
+  documentType: string
+  file: File
 }
 
 export interface Driver {
@@ -149,6 +162,59 @@ export interface DashboardMetrics {
   pending_drivers_count: number
   active_drivers_count: number
   active_rides_count: number
+  completed_trips_today?: number
+  gmv_usd_today?: number
+  gmv_cdf_today?: number
+  commission_today?: number
+  open_tickets_count?: number
+  sos_active_count?: number
+}
+
+export interface ExchangeRate {
+  id?: string
+  rate_cdf_per_usd: number
+  source: 'live' | 'manual'
+  effective_from?: string
+  effective_to?: string
+  set_by?: string
+  created_at?: string
+}
+
+export interface LockedDriver {
+  id: string
+  user_id: string
+  full_name?: string
+  phone_number?: string
+  credit_balance: number
+  last_topup_at?: string
+  is_online: boolean
+}
+
+export interface InternalNote {
+  id: string
+  entity_id: string
+  entity_type: 'driver' | 'customer'
+  note: string
+  created_by?: string
+  created_at: string
+}
+
+export interface SosAnalytics {
+  trigger_rate_trend: Array<{ date: string; count: number }>
+  avg_time_to_first_responder_minutes: number
+  resolution_outcomes: { false_alarm: number; resolved: number; escalated: number }
+  total_sessions: number
+}
+
+export interface StandardAnalytics {
+  new_customers_by_day: Array<{ date: string; count: number }>
+  new_drivers_by_day: Array<{ date: string; count: number }>
+  gmv_by_day: Array<{ date: string; usd: number; cdf: number }>
+  trips_by_day: Array<{ date: string; count: number }>
+  completion_rate: number
+  avg_fare_usd: number
+  payment_success_rate: number
+  kyc_approval_rate: number
 }
 
 export interface AdminNotification {
@@ -689,13 +755,128 @@ class AlboTaxService {
     license_number: string
     license_expiry: string
     vehicle_type: string
-  }): Promise<void> {
+  }): Promise<CreateDriverResponse> {
     try {
-      await this.api.post('/drivers/admin/create', form)
+      const response = await this.api.post('/drivers/admin/create', form)
+      return response.data
     } catch (error) {
       console.error('Error creating driver:', error)
       throw error
     }
+  }
+
+  async uploadDriverDocuments(driverId: string, documents: DriverDocumentUploadInput[]): Promise<DriverDocument[]> {
+    const uploadedDocuments: DriverDocument[] = []
+
+    for (const [index, document] of documents.entries()) {
+      const objectPath = `${driverId}/${this.buildDriverDocumentFileName(document.documentType, document.file, index)}`
+
+      await this.uploadToSupabaseStorage('driver-documents', objectPath, document.file)
+
+      const inserted = await this.insertDriverDocumentRecord({
+        driver_id: driverId,
+        document_type: document.documentType,
+        file_url: this.getPublicStorageUrl('driver-documents', objectPath),
+        status: 'pending',
+      })
+
+      uploadedDocuments.push(inserted)
+    }
+
+    return uploadedDocuments
+  }
+
+  private buildDriverDocumentFileName(documentType: string, file: File, index: number): string {
+    const extension = file.name.includes('.') ? file.name.split('.').pop()?.toLowerCase() ?? 'bin' : 'bin'
+    const timestamp = Date.now() + index
+    return `${documentType}_${timestamp}.${extension}`
+  }
+
+  private getSupabaseAdminHeaders(extraHeaders?: Record<string, string>): Record<string, string> {
+    const anonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
+    const adminToken = (import.meta.env.VITE_ADMIN_TOKEN as string | undefined)?.trim() || this.getAuthToken()
+
+    if (!import.meta.env.VITE_SUPABASE_URL || !anonKey || !adminToken) {
+      throw new ServiceRequestError('Supabase document upload is not configured for this environment.')
+    }
+
+    return {
+      apikey: anonKey,
+      Authorization: `Bearer ${adminToken}`,
+      ...extraHeaders,
+    }
+  }
+
+  private getPublicStorageUrl(bucket: string, objectPath: string): string {
+    const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
+
+    if (!supabaseUrl) {
+      throw new ServiceRequestError('Supabase storage URL is not configured.')
+    }
+
+    const encodedPath = objectPath.split('/').map(encodeURIComponent).join('/')
+    return `${supabaseUrl}/storage/v1/object/public/${bucket}/${encodedPath}`
+  }
+
+  private async uploadToSupabaseStorage(bucket: string, objectPath: string, file: File): Promise<void> {
+    const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
+
+    if (!supabaseUrl) {
+      throw new ServiceRequestError('Supabase storage URL is not configured.')
+    }
+
+    const encodedPath = objectPath.split('/').map(encodeURIComponent).join('/')
+    const response = await fetch(`${supabaseUrl}/storage/v1/object/${bucket}/${encodedPath}`, {
+      method: 'POST',
+      headers: this.getSupabaseAdminHeaders({
+        'Content-Type': file.type || 'application/octet-stream',
+        'x-upsert': 'true',
+      }),
+      body: file,
+    })
+
+    if (!response.ok) {
+      const detail = await response.text()
+      throw new ServiceRequestError('Failed to upload driver document.', {
+        status: response.status,
+        url: `${supabaseUrl}/storage/v1/object/${bucket}/${encodedPath}`,
+        backendDetail: detail,
+      })
+    }
+  }
+
+  private async insertDriverDocumentRecord(body: {
+    driver_id: string
+    document_type: string
+    file_url: string
+    status: 'pending'
+  }): Promise<DriverDocument> {
+    const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
+
+    if (!supabaseUrl) {
+      throw new ServiceRequestError('Supabase REST URL is not configured.')
+    }
+
+    const response = await fetch(`${supabaseUrl}/rest/v1/driver_documents`, {
+      method: 'POST',
+      headers: this.getSupabaseAdminHeaders({
+        'Content-Type': 'application/json',
+        Prefer: 'return=representation',
+      }),
+      body: JSON.stringify(body),
+    })
+
+    if (!response.ok) {
+      const detail = await response.text()
+      throw new ServiceRequestError('Failed to save driver document record.', {
+        status: response.status,
+        url: `${supabaseUrl}/rest/v1/driver_documents`,
+        backendDetail: detail,
+      })
+    }
+
+    const [inserted] = await response.json() as DriverDocument[]
+    return inserted
   }
 
   /**
@@ -1768,6 +1949,305 @@ class AlboTaxService {
         const normalized = this.normalizeError(fallbackError)
         throw this.toServiceError(normalized, 'load dashboard metrics')
       }
+    }
+  }
+
+  // ==========================================
+  // DRIVER — EXTENDED ADMIN ACTIONS
+  // ==========================================
+
+  async grantDriverCategory(driverId: string, category: string, reason: string): Promise<Driver> {
+    try {
+      const response = await this.api.patch(`/drivers/${driverId}/category`, { category, reason })
+      return response.data
+    } catch (error) {
+      throw this.toServiceError(this.normalizeError(error), 'update driver category')
+    }
+  }
+
+  async permanentBanDriver(driverId: string, reason: string): Promise<void> {
+    try {
+      await this.api.patch(`/drivers/${driverId}/ban`, { reason })
+    } catch (error) {
+      throw this.toServiceError(this.normalizeError(error), 'ban driver')
+    }
+  }
+
+  async forceOfflineDriver(driverId: string): Promise<void> {
+    try {
+      await this.api.patch(`/drivers/${driverId}/force-offline`)
+    } catch (error) {
+      throw this.toServiceError(this.normalizeError(error), 'force driver offline')
+    }
+  }
+
+  async forceLogoutDriver(driverId: string): Promise<void> {
+    try {
+      await this.api.post(`/drivers/${driverId}/force-logout`)
+    } catch (error) {
+      throw this.toServiceError(this.normalizeError(error), 'force logout driver')
+    }
+  }
+
+  async addDriverNote(driverId: string, note: string): Promise<InternalNote> {
+    try {
+      const response = await this.api.post(`/drivers/${driverId}/notes`, { note })
+      return response.data
+    } catch (error) {
+      throw this.toServiceError(this.normalizeError(error), 'add driver note')
+    }
+  }
+
+  async getDriverNotes(driverId: string): Promise<InternalNote[]> {
+    try {
+      const response = await this.api.get(`/drivers/${driverId}/notes`)
+      return Array.isArray(response.data) ? response.data : response.data.notes || []
+    } catch (error) {
+      throw this.toServiceError(this.normalizeError(error), 'get driver notes')
+    }
+  }
+
+  async reRequestDocument(driverId: string, documentType: string): Promise<void> {
+    try {
+      await this.api.post(`/drivers/${driverId}/re-request-document`, { document_type: documentType })
+    } catch (error) {
+      throw this.toServiceError(this.normalizeError(error), 're-request document')
+    }
+  }
+
+  // ==========================================
+  // CUSTOMER — EXTENDED ADMIN ACTIONS
+  // ==========================================
+
+  async forceLogoutCustomer(userId: string): Promise<void> {
+    try {
+      await this.api.post(`/customers/admin/${userId}/force-logout`)
+    } catch (error) {
+      throw this.toServiceError(this.normalizeError(error), 'force logout customer')
+    }
+  }
+
+  async addCustomerNote(userId: string, note: string): Promise<InternalNote> {
+    try {
+      const response = await this.api.post(`/customers/admin/${userId}/notes`, { note })
+      return response.data
+    } catch (error) {
+      throw this.toServiceError(this.normalizeError(error), 'add customer note')
+    }
+  }
+
+  async getCustomerNotes(userId: string): Promise<InternalNote[]> {
+    try {
+      const response = await this.api.get(`/customers/admin/${userId}/notes`)
+      return Array.isArray(response.data) ? response.data : response.data.notes || []
+    } catch (error) {
+      throw this.toServiceError(this.normalizeError(error), 'get customer notes')
+    }
+  }
+
+  async adjustCustomerRating(userId: string, rating: number, reason: string): Promise<void> {
+    try {
+      await this.api.patch(`/customers/admin/${userId}/rating`, { rating, reason })
+    } catch (error) {
+      throw this.toServiceError(this.normalizeError(error), 'adjust customer rating')
+    }
+  }
+
+  async getCustomerPayments(userId: string): Promise<unknown[]> {
+    try {
+      const response = await this.api.get(`/customers/admin/${userId}/payments`)
+      return Array.isArray(response.data) ? response.data : response.data.payments || []
+    } catch (error) {
+      throw this.toServiceError(this.normalizeError(error), 'get customer payments')
+    }
+  }
+
+  async getCustomerTickets(userId: string): Promise<unknown[]> {
+    try {
+      const response = await this.api.get(`/customers/admin/${userId}/tickets`)
+      return Array.isArray(response.data) ? response.data : response.data.tickets || []
+    } catch (error) {
+      throw this.toServiceError(this.normalizeError(error), 'get customer tickets')
+    }
+  }
+
+  // ==========================================
+  // WARNINGS — GENERIC COMPOSER (§9.2.5)
+  // ==========================================
+
+  async sendWarningToUser(body: {
+    user_id: string
+    user_type: 'driver' | 'customer'
+    category: 'rate_abuse' | 'no_show' | 'safety' | 'payment_fraud' | 'other'
+    message: string
+  }): Promise<void> {
+    try {
+      await this.api.post('/admin/notifications/warning', body)
+    } catch (error) {
+      // Fallback to targeted push if dedicated endpoint not ready
+      await this.sendTargetedNotification({
+        user_ids: [body.user_id],
+        title: `Warning: ${body.category.replace('_', ' ')}`,
+        message: body.message,
+      })
+    }
+  }
+
+  // ==========================================
+  // EXCHANGE RATE (§6.6)
+  // ==========================================
+
+  async getExchangeRate(): Promise<ExchangeRate> {
+    try {
+      const response = await this.api.get('/config/admin/exchange-rate')
+      return response.data
+    } catch (error) {
+      throw this.toServiceError(this.normalizeError(error), 'get exchange rate')
+    }
+  }
+
+  async setExchangeRate(rate: number, effectiveFrom?: string): Promise<ExchangeRate> {
+    try {
+      const response = await this.api.put('/config/admin/exchange-rate', {
+        rate_cdf_per_usd: rate,
+        effective_from: effectiveFrom,
+        source: 'manual',
+      })
+      return response.data
+    } catch (error) {
+      throw this.toServiceError(this.normalizeError(error), 'set exchange rate')
+    }
+  }
+
+  // ==========================================
+  // WALLET — LOCKED DRIVERS + MANUAL ADJUST (§6.4)
+  // ==========================================
+
+  async getLockedDrivers(): Promise<LockedDriver[]> {
+    try {
+      const response = await this.api.get('/drivers/admin/list', { params: { wallet_state: 'locked' } })
+      return Array.isArray(response.data) ? response.data : response.data.drivers || []
+    } catch (error) {
+      throw this.toServiceError(this.normalizeError(error), 'get locked drivers')
+    }
+  }
+
+  async manualWalletAdjustment(driverId: string, amount: number, reason: string): Promise<void> {
+    try {
+      await this.api.post(`/wallet/admin/driver/${driverId}/adjust`, { amount, reason })
+    } catch (error) {
+      throw this.toServiceError(this.normalizeError(error), 'manual wallet adjustment')
+    }
+  }
+
+  async getWalletLowBalanceThreshold(): Promise<{ threshold: number }> {
+    try {
+      const response = await this.api.get('/config/admin/wallet-threshold')
+      return response.data
+    } catch (error) {
+      throw this.toServiceError(this.normalizeError(error), 'get wallet threshold')
+    }
+  }
+
+  async setWalletLowBalanceThreshold(threshold: number): Promise<void> {
+    try {
+      await this.api.put('/config/admin/wallet-threshold', { threshold })
+    } catch (error) {
+      throw this.toServiceError(this.normalizeError(error), 'set wallet threshold')
+    }
+  }
+
+  // ==========================================
+  // SUPPORT — INTERNAL NOTES (§7.2)
+  // ==========================================
+
+  async addTicketInternalNote(ticketId: string, note: string): Promise<void> {
+    try {
+      await this.api.post(`/admin/support/tickets/${ticketId}/internal-notes`, { note })
+    } catch (error) {
+      throw this.toServiceError(this.normalizeError(error), 'add internal note')
+    }
+  }
+
+  async getTicketInternalNotes(ticketId: string): Promise<Array<{ id: string; note: string; created_by?: string; created_at: string }>> {
+    try {
+      const response = await this.api.get(`/admin/support/tickets/${ticketId}/internal-notes`)
+      return Array.isArray(response.data) ? response.data : response.data.notes || []
+    } catch (error) {
+      throw this.toServiceError(this.normalizeError(error), 'get internal notes')
+    }
+  }
+
+  // ==========================================
+  // AUDIT LOG — SEARCH / FILTER / EXPORT (§14.1)
+  // ==========================================
+
+  async searchAuditLog(params: {
+    action?: string
+    admin_id?: string
+    target_table?: string
+    target_id?: string
+    date_from?: string
+    date_to?: string
+    limit?: number
+    offset?: number
+  }): Promise<{ logs: AdminLog[]; total: number }> {
+    try {
+      const response = await this.api.get('/admin/audit/log', { params })
+      const data = response.data
+      return {
+        logs: Array.isArray(data) ? data : data.logs || [],
+        total: data.total || 0,
+      }
+    } catch (error) {
+      throw this.toServiceError(this.normalizeError(error), 'search audit log')
+    }
+  }
+
+  // ==========================================
+  // SOS ANALYTICS (§8.3)
+  // ==========================================
+
+  async getSosAnalytics(days: number): Promise<SosAnalytics> {
+    try {
+      const response = await this.api.get('/sos/admin/analytics', { params: { days } })
+      return response.data
+    } catch (error) {
+      throw this.toServiceError(this.normalizeError(error), 'get SOS analytics')
+    }
+  }
+
+  // ==========================================
+  // STANDARD ANALYTICS DASHBOARDS (§12.1)
+  // ==========================================
+
+  async getStandardAnalytics(days: number): Promise<StandardAnalytics> {
+    try {
+      const response = await this.api.get('/analytics/admin/standard', { params: { days } })
+      return response.data
+    } catch (error) {
+      throw this.toServiceError(this.normalizeError(error), 'get standard analytics')
+    }
+  }
+
+  async getFullDashboardMetrics(): Promise<DashboardMetrics> {
+    try {
+      const response = await this.api.get('/analytics/admin/dashboard')
+      const d = response.data
+      return {
+        pending_payments_count: d.pending_payments_count ?? d.pending_topup_count ?? 0,
+        pending_drivers_count: d.pending_drivers_count ?? d.pending_kyc_count ?? 0,
+        active_drivers_count: d.active_drivers_count ?? d.online_drivers ?? 0,
+        active_rides_count: d.active_rides_count ?? d.active_rides ?? 0,
+        completed_trips_today: d.completed_trips_today ?? d.completed_today ?? 0,
+        gmv_usd_today: d.gmv_usd_today ?? d.gmv_usd ?? 0,
+        gmv_cdf_today: d.gmv_cdf_today ?? d.gmv_cdf ?? 0,
+        commission_today: d.commission_today ?? d.commission_usd ?? 0,
+        open_tickets_count: d.open_tickets_count ?? d.open_tickets ?? 0,
+        sos_active_count: d.sos_active_count ?? d.active_sos ?? 0,
+      }
+    } catch {
+      return this.getDashboardMetrics()
     }
   }
 

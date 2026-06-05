@@ -1,6 +1,18 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+:root {
+  --font-sans: 'Plus Jakarta Sans', sans-serif;
+  --font-display: 'Space Grotesk', sans-serif;
+  --app-bg:
+    radial-gradient(circle at top left, rgba(14, 165, 233, 0.2), transparent 26%),
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.16), transparent 24%),
+    radial-gradient(circle at bottom, rgba(14, 165, 233, 0.08), transparent 22%),
+    linear-gradient(180deg, #edf5ff 0%, #f6faff 38%, #f8fafc 100%);
+}
 
 * {
   @apply box-border;
@@ -12,12 +24,25 @@ html {
 
 body {
   @apply min-h-screen bg-slate-100 text-slate-900 antialiased;
-  background-image:
-    radial-gradient(circle at top left, rgba(59, 130, 246, 0.18), transparent 28%),
-    radial-gradient(circle at top right, rgba(14, 165, 233, 0.12), transparent 26%),
-    linear-gradient(180deg, #eef4ff 0%, #f8fbff 32%, #f8fafc 100%);
+  font-family: var(--font-sans);
+  background-image: var(--app-bg);
+  background-attachment: fixed;
 }
 
 #root {
   @apply min-h-screen;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-display);
+  letter-spacing: -0.03em;
+}
+
+::selection {
+  background: rgba(14, 165, 233, 0.2);
 }

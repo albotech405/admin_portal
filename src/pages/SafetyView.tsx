@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { Card, Button, Badge, Modal } from '../components'
+import { Card, Button, Modal } from '../components'
 import { SosSession, supabaseService } from '../services/supabaseService'
 
 const STATUS_TABS = ['all', 'active', 'resolved', 'cancelled'] as const

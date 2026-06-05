@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react'
-import { supabaseService, Ride, RideDetailResponse, TripResponse, ActiveRideRequest, RideOfferHistory, ActiveTripItem, MarketplaceRequestItem, MarketplaceBidItem } from '../services/supabaseService'
+import { supabaseService, Ride, RideDetailResponse, TripResponse, ActiveRideRequest, RideOfferHistory, MarketplaceRequestItem } from '../services/supabaseService'
 import { Card } from '../components/Card'
 import { Button } from '../components/Button'
 import { Table } from '../components/Table'
@@ -39,7 +39,7 @@ const MAP_LIBRARIES: ('places' | 'drawing' | 'geometry' | 'visualization')[] = [
 export const RidesView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>('active_rides')
   const [rides, setRides] = useState<Ride[]>([])
-  const [activeTrips, setActiveTrips] = useState<ActiveTripItem[]>([])
+  const [, setActiveTrips] = useState<import('../services/supabaseService').ActiveTripItem[]>([])
   const [requests, setRequests] = useState<ActiveRideRequest[]>([])
   const [history, setHistory] = useState<Ride[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -60,7 +60,6 @@ export const RidesView: React.FC = () => {
   // Marketplace state
   const [marketplaceRequests, setMarketplaceRequests] = useState<MarketplaceRequestItem[]>([])
   const [selectedMarketplaceRequest, setSelectedMarketplaceRequest] = useState<MarketplaceRequestItem | null>(null)
-  const [marketplaceInfoRequest, setMarketplaceInfoRequest] = useState<MarketplaceRequestItem | null>(null)
   const [isMarketplaceLoading, setIsMarketplaceLoading] = useState(false)
   const marketplaceMapRef = useRef<google.maps.Map | null>(null)
 
@@ -81,10 +80,6 @@ export const RidesView: React.FC = () => {
     googleMapsApiKey: apiKey,
     libraries: MAP_LIBRARIES,
   })
-
-  const onMapLoad = useCallback((map: google.maps.Map) => {
-    mapRef.current = map
-  }, [])
 
   // Fit map bounds to show both pickup and destination
   useEffect(() => {

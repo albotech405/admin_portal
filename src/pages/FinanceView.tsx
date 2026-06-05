@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { Card, Button, Table, Badge } from '../components'
-import { supabaseService, TransactionItem } from '../services/supabaseService'
+import { ExchangeRate, supabaseService, TransactionItem } from '../services/supabaseService'
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -188,6 +188,46 @@ export const FinanceView: React.FC = () => {
   const [offset, setOffset] = useState(0)
   const [selectedTx, setSelectedTx] = useState<TransactionItem | null>(null)
 
+  // Exchange rate state
+  const [exchangeRate, setExchangeRate] = useState<ExchangeRate | null>(null)
+  const [showRateForm, setShowRateForm] = useState(false)
+  const [newRate, setNewRate] = useState('')
+  const [newRateEffective, setNewRateEffective] = useState('')
+  const [isSavingRate, setIsSavingRate] = useState(false)
+
+  // Locked drivers state
+  const [lockedDrivers, setLockedDrivers] = useState<Array<{ driver_id: string; full_name?: string; credit_balance?: number; locked_at?: string }>>([])
+  const [showLockedDrivers, setShowLockedDrivers] = useState(false)
+
+  useEffect(() => {
+    supabaseService.getExchangeRate().then(r => setExchangeRate(r)).catch(() => {})
+  }, [])
+
+  const loadLockedDrivers = async () => {
+    try {
+      const data = await supabaseService.getLockedDrivers()
+      setLockedDrivers(data as any[])
+      setShowLockedDrivers(true)
+    } catch { /* ignore */ }
+  }
+
+  const handleSaveExchangeRate = async () => {
+    if (!newRate || isNaN(parseFloat(newRate))) return
+    setIsSavingRate(true)
+    try {
+      await supabaseService.setExchangeRate(parseFloat(newRate), newRateEffective || undefined)
+      setExchangeRate({
+        rate_cdf_per_usd: parseFloat(newRate),
+        source: 'manual',
+        effective_from: newRateEffective || undefined,
+        created_at: new Date().toISOString(),
+      })
+      setShowRateForm(false)
+      setNewRate('')
+      setNewRateEffective('')
+    } catch { /* ignore */ } finally { setIsSavingRate(false) }
+  }
+
   const loadTransactions = useCallback(async (resetOffset = true) => {
     setIsLoading(true)
     setError(null)
@@ -297,6 +337,63 @@ export const FinanceView: React.FC = () => {
         <p className="mt-2 max-w-3xl text-brand-600">
           Browse, filter, and export all financial transactions including ride payments and wallet topups.
         </p>
+      </div>
+
+      {/* Exchange rate card */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <Card>
+          <div className="flex items-start justify-between">
+            <div>
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">Exchange Rate (USD → CDF)</h2>
+              <p className="mt-2 text-3xl font-bold text-slate-950">{exchangeRate ? `1 USD = ${exchangeRate.rate_cdf_per_usd.toLocaleString()} CDF` : '—'}</p>
+              {exchangeRate?.created_at && <p className="mt-1 text-xs text-slate-400">Updated: {new Date(exchangeRate.created_at).toLocaleString()}</p>}
+            </div>
+            <Button size="sm" variant="secondary" onClick={() => { setShowRateForm(v => !v); setNewRate(exchangeRate?.rate_cdf_per_usd.toString() || '') }}>Edit</Button>
+          </div>
+          {showRateForm && (
+            <div className="mt-4 space-y-3 border-t border-slate-100 pt-4">
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-600">New Rate (CDF per USD) *</label>
+                <input type="number" value={newRate} onChange={e => setNewRate(e.target.value)} placeholder="e.g. 2800"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-600">Effective From (optional)</label>
+                <input type="datetime-local" value={newRateEffective} onChange={e => setNewRateEffective(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" variant="primary" onClick={handleSaveExchangeRate} isLoading={isSavingRate} disabled={!newRate} className="flex-1">Save Rate</Button>
+                <Button size="sm" variant="secondary" onClick={() => setShowRateForm(false)} className="flex-1">Cancel</Button>
+              </div>
+            </div>
+          )}
+        </Card>
+
+        <Card>
+          <div className="flex items-start justify-between mb-3">
+            <div>
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">Locked Drivers (low balance)</h2>
+              <p className="mt-1 text-xs text-slate-400">Drivers locked from going online due to insufficient wallet balance</p>
+            </div>
+            <Button size="sm" variant="secondary" onClick={loadLockedDrivers}>Load</Button>
+          </div>
+          {showLockedDrivers && (
+            lockedDrivers.length === 0
+              ? <p className="text-sm text-slate-400">No locked drivers currently.</p>
+              : <div className="space-y-2 max-h-40 overflow-y-auto">
+                {lockedDrivers.map((d, i) => (
+                  <div key={d.driver_id || i} className="flex items-center justify-between rounded-xl bg-red-50 px-3 py-2 text-sm">
+                    <div>
+                      <span className="font-semibold text-slate-900">{d.full_name || d.driver_id}</span>
+                      {d.credit_balance != null && <span className="ml-2 text-xs text-red-600">{d.credit_balance.toLocaleString()} CDF</span>}
+                    </div>
+                    {d.locked_at && <span className="text-xs text-slate-400">{new Date(d.locked_at).toLocaleDateString()}</span>}
+                  </div>
+                ))}
+              </div>
+          )}
+        </Card>
       </div>
 
       {/* Filters */}

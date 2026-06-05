@@ -26,6 +26,21 @@ type TicketDetail = Ticket & {
   messages?: TicketMessage[]
 }
 
+type InternalNote = {
+  id: string
+  note: string
+  created_at: string
+}
+
+type UserContext = {
+  full_name?: string
+  phone_number?: string
+  total_trips?: number
+  rating?: number
+  status?: string
+  verification_status?: string
+}
+
 const STATUS_TABS = ['all', 'open', 'in_progress', 'resolved', 'closed', 'escalated'] as const
 type StatusTab = typeof STATUS_TABS[number]
 const PRIORITY_TABS = ['all', 'urgent', 'high', 'normal', 'low'] as const
@@ -46,6 +61,20 @@ const STATUS_COLOR: Record<string, string> = {
   escalated: 'bg-red-100 text-red-800',
 }
 
+// SLA age helpers
+function ticketAgeHours(createdAt?: string): number {
+  if (!createdAt) return 0
+  return (Date.now() - new Date(createdAt).getTime()) / 3600000
+}
+
+function slaFlag(priority: string | undefined, createdAt: string | undefined): { label: string; class: string } | null {
+  const h = ticketAgeHours(createdAt)
+  const isHigh = priority === 'urgent' || priority === 'high'
+  if (isHigh && h > 4) return { label: `${Math.floor(h)}h`, class: 'bg-red-100 text-red-700' }
+  if (!isHigh && h > 24) return { label: `${Math.floor(h)}h`, class: 'bg-orange-100 text-orange-700' }
+  return null
+}
+
 export const SupportView: React.FC = () => {
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -57,6 +86,14 @@ export const SupportView: React.FC = () => {
   const [reply, setReply] = useState('')
   const [isSending, setIsSending] = useState(false)
   const [isUpdating, setIsUpdating] = useState(false)
+
+  const [internalNotes, setInternalNotes] = useState<InternalNote[]>([])
+  const [noteText, setNoteText] = useState('')
+  const [isSavingNote, setIsSavingNote] = useState(false)
+  const [showNoteForm, setShowNoteForm] = useState(false)
+
+  const [userContext, setUserContext] = useState<UserContext | null>(null)
+  const [userTrips, setUserTrips] = useState<unknown[]>([])
 
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [createForm, setCreateForm] = useState({ userId: '', userType: 'customer', subject: '', message: '', priority: 'normal' })
@@ -86,7 +123,22 @@ export const SupportView: React.FC = () => {
       const data = await supabaseService.getTicketDetail(ticketId)
       setSelectedTicket(data as TicketDetail)
       setReply('')
+      setInternalNotes([])
+      setUserContext(null)
+      setUserTrips([])
       setError(null)
+      // Load internal notes and user context in background
+      supabaseService.getTicketInternalNotes(ticketId).then(n => setInternalNotes(n as InternalNote[])).catch(() => {})
+      const ticket = data as TicketDetail
+      if (ticket.user_id && ticket.user_type) {
+        if (ticket.user_type === 'customer') {
+          supabaseService.getCustomerDetail(ticket.user_id as string).then(u => setUserContext(u as UserContext)).catch(() => {})
+          supabaseService.getCustomerTrips(ticket.user_id as string).then(t => setUserTrips((t as unknown[]).slice(0, 5))).catch(() => {})
+        } else if (ticket.user_type === 'driver') {
+          supabaseService.getDriverDetail(ticket.user_id as string).then(u => setUserContext(u as UserContext)).catch(() => {})
+          supabaseService.getDriverTrips(ticket.user_id as string).then(t => setUserTrips((t as unknown[]).slice(0, 5))).catch(() => {})
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load ticket')
     } finally {
@@ -144,6 +196,19 @@ export const SupportView: React.FC = () => {
     finally { setIsCreating(false) }
   }
 
+  const handleAddInternalNote = async () => {
+    if (!selectedTicket || !noteText.trim()) return
+    setIsSavingNote(true)
+    try {
+      await supabaseService.addTicketInternalNote(selectedTicket.id, noteText)
+      const notes = await supabaseService.getTicketInternalNotes(selectedTicket.id)
+      setInternalNotes(notes as InternalNote[])
+      setNoteText('')
+      setShowNoteForm(false)
+    } catch (err) { setError(err instanceof Error ? err.message : 'Failed to add note') }
+    finally { setIsSavingNote(false) }
+  }
+
   if (selectedTicket) {
     const messages = selectedTicket.messages || []
     const isActive = !['resolved', 'closed'].includes(selectedTicket.status || '')
@@ -178,40 +243,110 @@ export const SupportView: React.FC = () => {
 
         {error && <div className="rounded-2xl border border-red-300 bg-red-50 px-4 py-3 text-red-700 text-sm">{error}</div>}
 
-        <Card>
-          <h2 className="text-sm font-semibold text-slate-500 mb-3 uppercase tracking-wide">Thread</h2>
-          {messages.length === 0
-            ? <div className="text-sm text-slate-500 py-8 text-center">No messages yet.</div>
-            : (
-              <div className="space-y-4">
-                {messages.map((msg, i) => {
-                  const isAdmin = msg.sender_type === 'admin'
-                  return (
-                    <div key={msg.id || i} className={`flex ${isAdmin ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`max-w-lg rounded-2xl px-4 py-3 text-sm ${isAdmin ? 'bg-slate-950 text-white' : 'bg-slate-100 text-slate-950'}`}>
-                        <p className="mb-1 text-xs opacity-60">{isAdmin ? 'Admin' : (msg.sender_type || 'User')} · {new Date(msg.created_at).toLocaleString()}</p>
-                        <p>{msg.body}</p>
-                      </div>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          {/* Left: thread + reply */}
+          <div className="lg:col-span-2 space-y-4">
+            <Card>
+              <h2 className="text-sm font-semibold text-slate-500 mb-3 uppercase tracking-wide">Thread</h2>
+              {messages.length === 0
+                ? <div className="text-sm text-slate-500 py-8 text-center">No messages yet.</div>
+                : (
+                  <div className="space-y-4">
+                    {messages.map((msg, i) => {
+                      const isAdmin = msg.sender_type === 'admin'
+                      return (
+                        <div key={msg.id || i} className={`flex ${isAdmin ? 'justify-end' : 'justify-start'}`}>
+                          <div className={`max-w-lg rounded-2xl px-4 py-3 text-sm ${isAdmin ? 'bg-slate-950 text-white' : 'bg-slate-100 text-slate-950'}`}>
+                            <p className="mb-1 text-xs opacity-60">{isAdmin ? 'Admin' : (msg.sender_type || 'User')} · {new Date(msg.created_at).toLocaleString()}</p>
+                            <p>{msg.body}</p>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              }
+              {isActive && (
+                <div className="mt-4 border-t border-slate-100 pt-4 space-y-2">
+                  <textarea
+                    className="w-full rounded-2xl border border-slate-300 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-500"
+                    rows={3} placeholder="Type a reply..." value={reply} onChange={e => setReply(e.target.value)}
+                  />
+                  <div className="flex justify-end">
+                    <Button variant="primary" size="sm" onClick={handleSendReply} disabled={!reply.trim() || isSending}>
+                      {isSending ? 'Sending...' : 'Send Reply'}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </Card>
+
+            {/* Internal notes */}
+            <Card>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wide">Internal Notes (admin only)</h2>
+                <Button size="sm" variant="secondary" onClick={() => setShowNoteForm(v => !v)}>+ Note</Button>
+              </div>
+              {showNoteForm && (
+                <div className="mb-4 space-y-2">
+                  <textarea value={noteText} onChange={e => setNoteText(e.target.value)} rows={3}
+                    placeholder="Internal note — not visible to user…"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="primary" onClick={handleAddInternalNote} disabled={!noteText.trim() || isSavingNote} className="flex-1">Save Note</Button>
+                    <Button size="sm" variant="secondary" onClick={() => setShowNoteForm(false)} className="flex-1">Cancel</Button>
+                  </div>
+                </div>
+              )}
+              {internalNotes.length === 0
+                ? <p className="text-sm text-slate-400">No internal notes yet.</p>
+                : internalNotes.map(n => (
+                  <div key={n.id} className="mb-2 rounded-xl bg-amber-50 px-3 py-2 text-sm">
+                    <p className="text-slate-800">{n.note}</p>
+                    <p className="mt-1 text-xs text-slate-400">{new Date(n.created_at).toLocaleString()}</p>
+                  </div>
+                ))}
+            </Card>
+          </div>
+
+          {/* Right: user context rail */}
+          <div className="space-y-3">
+            <Card>
+              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">User Context</h3>
+              {userContext
+                ? <dl className="space-y-2 text-sm">
+                  {[
+                    ['Name', userContext.full_name || '—'],
+                    ['Phone', userContext.phone_number || '—'],
+                    ['Type', selectedTicket.user_type || '—'],
+                    ['Trips', String(userContext.total_trips ?? '—')],
+                    ['Rating', userContext.rating ? Number(userContext.rating).toFixed(1) : '—'],
+                    ['Status', userContext.status || userContext.verification_status || '—'],
+                  ].map(([k, v]) => (
+                    <div key={k} className="flex justify-between">
+                      <dt className="text-slate-500">{k}</dt>
+                      <dd className="font-medium text-slate-900">{v}</dd>
                     </div>
-                  )
-                })}
-              </div>
-            )
-          }
-          {isActive && (
-            <div className="mt-4 border-t border-slate-100 pt-4 space-y-2">
-              <textarea
-                className="w-full rounded-2xl border border-slate-300 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-500"
-                rows={3} placeholder="Type a reply..." value={reply} onChange={e => setReply(e.target.value)}
-              />
-              <div className="flex justify-end">
-                <Button variant="primary" size="sm" onClick={handleSendReply} disabled={!reply.trim() || isSending}>
-                  {isSending ? 'Sending...' : 'Send Reply'}
-                </Button>
-              </div>
-            </div>
-          )}
-        </Card>
+                  ))}
+                </dl>
+                : <p className="text-sm text-slate-400">Loading user profile…</p>}
+            </Card>
+            <Card>
+              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Recent Trips (last 5)</h3>
+              {userTrips.length === 0
+                ? <p className="text-sm text-slate-400">No trips found.</p>
+                : userTrips.map((trip: any, i) => (
+                  <div key={trip.id || i} className="mb-2 rounded-xl bg-slate-50 px-3 py-2 text-xs">
+                    <div className="flex justify-between">
+                      <span className="font-semibold capitalize">{trip.status || '—'}</span>
+                      <span className="text-slate-400">{trip.created_at ? new Date(trip.created_at).toLocaleDateString() : ''}</span>
+                    </div>
+                    {trip.fare_amount && <p className="text-slate-500">{trip.fare_amount.toLocaleString()} CDF</p>}
+                  </div>
+                ))}
+            </Card>
+          </div>
+        </div>
       </div>
     )
   }
@@ -268,6 +403,7 @@ export const SupportView: React.FC = () => {
                   <p className="text-xs text-slate-500 mt-0.5">ID: {ticket.id} {ticket.user_id && `· User: ${ticket.user_id}`}</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                  {(() => { const flag = slaFlag(ticket.priority, ticket.created_at); return flag ? <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${flag.class}`}>⏱ {flag.label}</span> : null })()}
                   <span className={`px-2 py-0.5 rounded-full text-xs font-semibold uppercase ${PRIORITY_COLOR[ticket.priority || 'normal'] || 'bg-slate-100'}`}>
                     {ticket.priority || 'normal'}
                   </span>

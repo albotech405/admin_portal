@@ -32,18 +32,27 @@ type SavedPlace = {
   created_at: string
 }
 
-type ActivityEvent = Record<string, unknown>
+type ActivityEvent = {
+  id?: string
+  event_type?: string
+  timestamp?: string
+  description?: string
+  details?: unknown
+} & Record<string, unknown>
 
 const STATUS_TABS = ['all', 'active', 'banned', 'inactive']
 
-const PROFILE_TABS = ['Overview', 'Trips', 'Saved Places', 'Emergency Contacts', 'Notifications', 'Activity'] as const
+const PROFILE_TABS = ['Overview', 'Trips', 'Payments', 'Tickets', 'Saved Places', 'Emergency Contacts', 'Notifications', 'Activity'] as const
 type ProfileTab = typeof PROFILE_TABS[number]
+
+const WARNING_CATEGORIES = ['rate_abuse', 'no_show', 'safety', 'payment_fraud', 'other'] as const
 
 export const CustomersView: React.FC = () => {
   const [customers, setCustomers] = useState<Customer[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [genderFilter, setGenderFilter] = useState('all')
   const [error, setError] = useState<string | null>(null)
 
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerDetail | null>(null)
@@ -67,6 +76,17 @@ export const CustomersView: React.FC = () => {
   const [notifySuccess, setNotifySuccess] = useState(false)
   const [notifyError, setNotifyError] = useState<string | null>(null)
   const [isSending, setIsSending] = useState(false)
+
+  // Extended admin actions
+  const [showNoteModal, setShowNoteModal] = useState(false)
+  const [noteText, setNoteText] = useState('')
+  const [notes, setNotes] = useState<Array<{ id: string; note: string; created_at: string }>>([])
+  const [showWarnModal, setShowWarnModal] = useState(false)
+  const [warnCategory, setWarnCategory] = useState<typeof WARNING_CATEGORIES[number]>('other')
+  const [warnMessage, setWarnMessage] = useState('')
+  const [showRatingModal, setShowRatingModal] = useState(false)
+  const [newRating, setNewRating] = useState('')
+  const [ratingReason, setRatingReason] = useState('')
 
   const openNotifyModal = (target: 'all' | 'individual') => {
     setNotifyTarget(target)
@@ -101,6 +121,7 @@ export const CustomersView: React.FC = () => {
       const params: Record<string, string> = {}
       if (search) params.search = search
       if (statusFilter !== 'all') params.status = statusFilter
+      if (genderFilter !== 'all') params.gender = genderFilter
       const data = await supabaseService.getCustomers(params)
       setCustomers(data as Customer[])
       setError(null)
@@ -109,7 +130,7 @@ export const CustomersView: React.FC = () => {
     } finally {
       setIsLoading(false)
     }
-  }, [search, statusFilter])
+  }, [search, statusFilter, genderFilter])
 
   useEffect(() => { void loadCustomers() }, [loadCustomers])
 
@@ -134,6 +155,8 @@ export const CustomersView: React.FC = () => {
     try {
       switch (tab) {
         case 'Trips': setTabData(await supabaseService.getCustomerTrips(customerId)); break
+        case 'Payments': setTabData(await supabaseService.getCustomerPayments(customerId)); break
+        case 'Tickets': setTabData(await supabaseService.getCustomerTickets(customerId)); break
         case 'Saved Places': setTabData(await supabaseService.getCustomerSavedAddresses(customerId)); break
         case 'Emergency Contacts': setTabData(await supabaseService.getCustomerEmergencyContacts(customerId)); break
         case 'Notifications': setTabData(await supabaseService.getCustomerNotifications(customerId)); break
@@ -177,6 +200,51 @@ export const CustomersView: React.FC = () => {
     finally { setIsProcessing(false) }
   }
 
+  const handleForceLogout = async () => {
+    if (!selectedCustomer) return
+    setIsProcessing(true)
+    try { await supabaseService.forceLogoutCustomer(selectedCustomer.id) }
+    catch (err) { setError(err instanceof Error ? err.message : 'Failed to force logout') }
+    finally { setIsProcessing(false) }
+  }
+
+  const handleAddNote = async () => {
+    if (!selectedCustomer || !noteText.trim()) return
+    setIsProcessing(true)
+    try {
+      await supabaseService.addCustomerNote(selectedCustomer.id, noteText)
+      const n = await supabaseService.getCustomerNotes(selectedCustomer.id)
+      setNotes(n)
+      setNoteText('')
+      setShowNoteModal(false)
+    } catch (err) { setError(err instanceof Error ? err.message : 'Failed to add note') }
+    finally { setIsProcessing(false) }
+  }
+
+  const handleSendWarning = async () => {
+    if (!selectedCustomer || !warnMessage.trim()) return
+    setIsProcessing(true)
+    try {
+      await supabaseService.sendWarningToUser({ user_id: selectedCustomer.id, user_type: 'customer', category: warnCategory, message: warnMessage })
+      setShowWarnModal(false)
+      setWarnMessage('')
+    } catch (err) { setError(err instanceof Error ? err.message : 'Failed to send warning') }
+    finally { setIsProcessing(false) }
+  }
+
+  const handleAdjustRating = async () => {
+    if (!selectedCustomer || !newRating || !ratingReason.trim()) return
+    setIsProcessing(true)
+    try {
+      await supabaseService.adjustCustomerRating(selectedCustomer.id, parseFloat(newRating), ratingReason)
+      setSelectedCustomer({ ...selectedCustomer, rating: parseFloat(newRating) })
+      setShowRatingModal(false)
+      setNewRating('')
+      setRatingReason('')
+    } catch (err) { setError(err instanceof Error ? err.message : 'Failed to adjust rating') }
+    finally { setIsProcessing(false) }
+  }
+
   const handleAddCustomer = async () => {
     if (!addForm.full_name.trim() || !addForm.phone_number.trim()) return
     setIsAdding(true)
@@ -213,11 +281,15 @@ export const CustomersView: React.FC = () => {
               <Badge status={isBanned ? 'rejected' : 'approved'}>{isBanned ? 'Banned' : (selectedCustomer.status || 'Active')}</Badge>
             </div>
           </div>
-          <div className="flex gap-2">
-            <Button variant="secondary" size="sm" onClick={() => openNotifyModal('individual')}>Send Notification</Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" size="sm" onClick={() => openNotifyModal('individual')}>Push Notification</Button>
+            <Button variant="secondary" size="sm" onClick={handleForceLogout} disabled={isProcessing}>Force Logout</Button>
+            <Button variant="secondary" size="sm" onClick={async () => { const n = await supabaseService.getCustomerNotes(selectedCustomer.id).catch(() => []); setNotes(n); setShowNoteModal(true) }}>Add Note</Button>
+            <Button variant="secondary" size="sm" onClick={() => { setWarnMessage(''); setShowWarnModal(true) }}>Send Warning</Button>
+            <Button variant="secondary" size="sm" onClick={() => { setNewRating(''); setRatingReason(''); setShowRatingModal(true) }}>Adjust Rating</Button>
             {isBanned
-              ? <Button variant="primary" size="sm" onClick={handleUnban} disabled={isProcessing}>Unban Customer</Button>
-              : <Button variant="danger" size="sm" onClick={() => setShowBanModal(true)}>Ban Customer</Button>
+              ? <Button variant="primary" size="sm" onClick={handleUnban} disabled={isProcessing}>Unban</Button>
+              : <Button variant="danger" size="sm" onClick={() => setShowBanModal(true)}>Ban</Button>
             }
           </div>
         </div>
@@ -241,11 +313,15 @@ export const CustomersView: React.FC = () => {
                 ['Full Name', selectedCustomer.full_name || 'N/A'],
                 ['Phone', selectedCustomer.phone_number || 'N/A'],
                 ['Email', selectedCustomer.email || 'N/A'],
-                ['Gender', (selectedCustomer.gender as string) || 'not_set'],
+                ['Gender', (selectedCustomer.gender as string) || 'not set'],
+                ['Last Active', (selectedCustomer.last_active_at as string) ? new Date(selectedCustomer.last_active_at as string).toLocaleString() : 'N/A'],
                 ['Status', selectedCustomer.status || 'active'],
                 ['Total Trips', String(selectedCustomer.total_trips ?? 0)],
                 ['Rating', selectedCustomer.rating ? Number(selectedCustomer.rating).toFixed(1) : 'N/A'],
                 ['Joined', selectedCustomer.created_at ? new Date(selectedCustomer.created_at).toLocaleDateString() : 'N/A'],
+                ['Banned', selectedCustomer.is_banned ? 'Yes' : 'No'],
+                ['ID', selectedCustomer.id],
+
               ] as [string, string][]).map(([label, value]) => (
                 <div key={label}>
                   <dt className="text-slate-500">{label}</dt>
@@ -315,12 +391,12 @@ export const CustomersView: React.FC = () => {
                             </span>
                             {ev.timestamp && (
                               <span className="text-xs text-slate-400">
-                                {new Date(ev.timestamp as string).toLocaleString()}
+                                {new Date(ev.timestamp).toLocaleString()}
                               </span>
                             )}
                           </div>
-                          {ev.description && <p className="text-xs text-slate-600 mt-1">{ev.description as string}</p>}
-                          {ev.details && (
+                          {ev.description && <p className="text-xs text-slate-600 mt-1">{ev.description}</p>}
+                          {ev.details != null && ev.details !== '' && (
                             <pre className="text-xs text-slate-500 mt-1 whitespace-pre-wrap overflow-x-auto">
                               {typeof ev.details === 'string' ? ev.details : JSON.stringify(ev.details, null, 2)}
                             </pre>
@@ -452,6 +528,65 @@ export const CustomersView: React.FC = () => {
             </div>
           </div>
         </Modal>
+
+        {/* Internal note modal */}
+        <Modal isOpen={showNoteModal} title="Add Internal Note" onClose={() => setShowNoteModal(false)}
+          onConfirm={handleAddNote} confirmText="Save Note" isConfirmLoading={isProcessing} confirmDisabled={!noteText.trim()}>
+          {notes.length > 0 && (
+            <div className="mb-4 space-y-2 max-h-40 overflow-y-auto">
+              {notes.map(n => (
+                <div key={n.id} className="rounded-xl bg-amber-50 px-3 py-2 text-sm">
+                  <p className="text-slate-800">{n.note}</p>
+                  <p className="mt-1 text-xs text-slate-400">{new Date(n.created_at).toLocaleString()}</p>
+                </div>
+              ))}
+            </div>
+          )}
+          <textarea value={noteText} onChange={e => setNoteText(e.target.value)} rows={4}
+            placeholder="Internal note — not visible to customer…"
+            className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
+        </Modal>
+
+        {/* Warning modal */}
+        <Modal isOpen={showWarnModal} title="Send Warning to Customer" onClose={() => setShowWarnModal(false)}
+          onConfirm={handleSendWarning} confirmText="Send Warning" isConfirmLoading={isProcessing} confirmDisabled={!warnMessage.trim()}>
+          <div className="space-y-3">
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">Category *</label>
+              <select value={warnCategory} onChange={e => setWarnCategory(e.target.value as any)}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400">
+                {WARNING_CATEGORIES.map(c => <option key={c} value={c}>{c.replace('_', ' ')}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">Message (shown to customer) *</label>
+              <textarea value={warnMessage} onChange={e => setWarnMessage(e.target.value)} rows={4}
+                placeholder="Describe the issue and expected behaviour…"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+            </div>
+          </div>
+        </Modal>
+
+        {/* Adjust rating modal */}
+        <Modal isOpen={showRatingModal} title="Manually Adjust Rating" onClose={() => setShowRatingModal(false)}
+          onConfirm={handleAdjustRating} confirmText="Update Rating" isConfirmLoading={isProcessing}
+          confirmDisabled={!newRating || !ratingReason.trim() || parseFloat(newRating) < 1 || parseFloat(newRating) > 5}>
+          <div className="space-y-3">
+            <div className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-700">Manual rating adjustments should only be applied after verified customer feedback errors or platform incidents. This is recorded in the audit log.</div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">New Rating (1.0 – 5.0) *</label>
+              <input type="number" step="0.1" min="1" max="5" value={newRating} onChange={e => setNewRating(e.target.value)}
+                placeholder="e.g. 4.5"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">Reason *</label>
+              <textarea value={ratingReason} onChange={e => setRatingReason(e.target.value)} rows={3}
+                placeholder="Reason for adjustment…"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" />
+            </div>
+          </div>
+        </Modal>
       </div>
     )
   }
@@ -482,7 +617,7 @@ export const CustomersView: React.FC = () => {
           />
           <Button size="sm" variant="primary" onClick={loadCustomers}>Search</Button>
         </div>
-        <div className="flex flex-wrap gap-2 mb-4">
+        <div className="flex flex-wrap gap-2 mb-2">
           {STATUS_TABS.map(s => (
             <button key={s} onClick={() => setStatusFilter(s)}
               className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-colors ${statusFilter === s ? 'bg-slate-950 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
@@ -490,10 +625,19 @@ export const CustomersView: React.FC = () => {
             </button>
           ))}
         </div>
+        <div className="flex flex-wrap gap-2 mb-4">
+          {['all', 'male', 'female', 'other'].map(g => (
+            <button key={g} onClick={() => setGenderFilter(g)}
+              className={`px-3 py-1 rounded-full text-xs font-medium capitalize transition-colors ${genderFilter === g ? 'bg-slate-700 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
+              {g === 'all' ? 'All genders' : g}
+            </button>
+          ))}
+        </div>
         <Table
           columns={[
             { key: 'full_name', label: 'Name' },
             { key: 'phone_number', label: 'Phone' },
+            { key: 'gender', label: 'Gender', width: 'w-24' },
             { key: 'status', label: 'Status', width: 'w-28' },
             { key: 'total_trips', label: 'Trips', width: 'w-20' },
             { key: 'rating', label: 'Rating', width: 'w-20' },
@@ -503,6 +647,7 @@ export const CustomersView: React.FC = () => {
             ...c,
             full_name: c.full_name || 'N/A',
             phone_number: c.phone_number || 'N/A',
+            gender: (c.gender as string) || '—',
             status: c.is_banned ? 'banned' : (c.status || 'active'),
             total_trips: c.total_trips ?? 0,
             rating: c.rating ? Number(c.rating).toFixed(1) : 'N/A',

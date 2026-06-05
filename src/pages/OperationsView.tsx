@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
-import { Card, Button, Badge, Modal, DocumentPreview } from '../components'
-import { Driver, DriverDocument, PaymentRequest, supabaseService } from '../services/supabaseService'
+import { Button, Modal, DocumentPreview } from '../components'
+import { Driver, DriverDocument, DriverDocumentUploadInput, PaymentRequest, supabaseService } from '../services/supabaseService'
 
 type Tab = 'driver_approval' | 'payments' | 'add_driver' | 'add_customer'
 
@@ -20,6 +20,34 @@ const statusColor: Record<string, string> = {
   suspended: 'bg-gray-100 text-gray-700',
   not_started: 'bg-gray-100 text-gray-700',
 }
+
+const DRIVER_DOCUMENT_FIELDS = [
+  { type: 'national_id', label: 'National ID' },
+  { type: 'selfie_with_id', label: 'Selfie With ID' },
+  { type: 'drivers_license', label: "Driver's License" },
+  { type: 'vehicle_registration', label: 'Vehicle Registration' },
+  { type: 'insurance', label: 'Insurance' },
+  { type: 'profile_photo', label: 'Profile Photo' },
+  { type: 'vehicle_photo_front', label: 'Vehicle Photo Front' },
+  { type: 'vehicle_photo_back', label: 'Vehicle Photo Back' },
+  { type: 'vehicle_photo_left', label: 'Vehicle Photo Left' },
+  { type: 'vehicle_photo_right', label: 'Vehicle Photo Right' },
+] as const
+
+type DriverDocumentFieldType = typeof DRIVER_DOCUMENT_FIELDS[number]['type']
+
+const createEmptyDriverDocuments = (): Record<DriverDocumentFieldType, File | null> => ({
+  national_id: null,
+  selfie_with_id: null,
+  drivers_license: null,
+  vehicle_registration: null,
+  insurance: null,
+  profile_photo: null,
+  vehicle_photo_front: null,
+  vehicle_photo_back: null,
+  vehicle_photo_left: null,
+  vehicle_photo_right: null,
+})
 
 // ─── Driver Approval Tab ───────────────────────────────────────────────────
 
@@ -204,7 +232,7 @@ const DriverApprovalTab: React.FC = () => {
 
                     {expandedDocId === doc.id && (
                       <div className="mt-3">
-                        <DocumentPreview url={doc.file_url} fileType={getFileType(doc.file_url)} />
+                        <DocumentPreview fileUrl={doc.file_url} fileType={getFileType(doc.file_url)} />
                       </div>
                     )}
 
@@ -406,7 +434,7 @@ const PaymentsTab: React.FC = () => {
               </div>
               {showProof && (
                 <DocumentPreview
-                  url={selected.proof_image_url}
+                  fileUrl={selected.proof_image_url}
                   fileType={selected.proof_image_url.toLowerCase().includes('.pdf') ? 'pdf' : 'image'}
                 />
               )}
@@ -473,12 +501,20 @@ const AddDriverTab: React.FC = () => {
     full_name: '', phone_number: '', email: '',
     license_number: '', license_expiry: '', vehicle_type: 'car',
   })
+  const [documents, setDocuments] = useState<Record<DriverDocumentFieldType, File | null>>(createEmptyDriverDocuments())
   const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState(false)
+  const [success, setSuccess] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setForm((f) => ({ ...f, [e.target.name]: e.target.value }))
+  }
+
+  const handleDocumentChange = (documentType: DriverDocumentFieldType, fileList: FileList | null) => {
+    setDocuments((prev) => ({
+      ...prev,
+      [documentType]: fileList?.[0] ?? null,
+    }))
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -490,7 +526,7 @@ const AddDriverTab: React.FC = () => {
     setError(null)
     setIsSubmitting(true)
     try {
-      await supabaseService.createDriver({
+      const driver = await supabaseService.createDriver({
         full_name: form.full_name.trim(),
         phone_number: form.phone_number.trim(),
         email: form.email.trim() || undefined,
@@ -498,8 +534,22 @@ const AddDriverTab: React.FC = () => {
         license_expiry: form.license_expiry,
         vehicle_type: form.vehicle_type,
       })
-      setSuccess(true)
+
+      const selectedDocuments = Object.entries(documents)
+        .filter(([, file]) => file instanceof File)
+        .map(([documentType, file]) => ({ documentType, file })) as DriverDocumentUploadInput[]
+
+      if (selectedDocuments.length > 0) {
+        await supabaseService.uploadDriverDocuments(driver.id, selectedDocuments)
+      }
+
+      setSuccess(
+        selectedDocuments.length > 0
+          ? `Driver created and ${selectedDocuments.length} document${selectedDocuments.length === 1 ? '' : 's'} uploaded for review.`
+          : 'Driver created successfully. You can upload documents later from the approval queue.'
+      )
       setForm({ full_name: '', phone_number: '', email: '', license_number: '', license_expiry: '', vehicle_type: 'car' })
+      setDocuments(createEmptyDriverDocuments())
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create driver')
     } finally {
@@ -512,8 +562,8 @@ const AddDriverTab: React.FC = () => {
       <h2 className="mb-4 text-lg font-semibold text-slate-800">Add New Driver</h2>
       {success && (
         <div className="mb-4 rounded-xl bg-green-50 border border-green-200 p-3 text-sm text-green-700">
-          Driver created successfully. They will receive an OTP to activate their account.
-          <button className="ml-3 underline" onClick={() => setSuccess(false)}>Add another</button>
+          {success}
+          <button className="ml-3 underline" onClick={() => setSuccess(null)}>Add another</button>
         </div>
       )}
       {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
@@ -557,6 +607,30 @@ const AddDriverTab: React.FC = () => {
             <label className="block mb-1 text-sm font-medium text-slate-700">License Expiry *</label>
             <input name="license_expiry" value={form.license_expiry} onChange={handleChange} type="date" required
               className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+          <div className="mb-4">
+            <h3 className="text-sm font-semibold text-slate-900">Driver Documents</h3>
+            <p className="mt-1 text-xs text-slate-500">Upload KYC and vehicle files now so the new driver lands in the review queue with documents attached.</p>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            {DRIVER_DOCUMENT_FIELDS.map((field) => (
+              <div key={field.type}>
+                <label className="block mb-1 text-sm font-medium text-slate-700">{field.label}</label>
+                <input
+                  type="file"
+                  accept="image/*,.pdf"
+                  onChange={(e) => handleDocumentChange(field.type, e.target.files)}
+                  className="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-blue-700 hover:file:bg-blue-100"
+                />
+                {documents[field.type] && (
+                  <p className="mt-1 truncate text-xs text-slate-500">{documents[field.type]?.name}</p>
+                )}
+              </div>
+            ))}
           </div>
         </div>
 
