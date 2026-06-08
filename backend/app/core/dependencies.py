@@ -1,5 +1,5 @@
 import base64
-from typing import Optional, List
+from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
@@ -16,6 +16,23 @@ except Exception:
 
 # Role hierarchy: higher index = more permissive override
 ROLE_HIERARCHY = ["readonly", "support", "finance", "operations", "super_admin"]
+
+
+def _role_rank(role: Optional[str]) -> int:
+    if role not in ROLE_HIERARCHY:
+        return -1
+    return ROLE_HIERARCHY.index(role)
+
+
+def _has_required_role(role: Optional[str], allowed_roles: tuple[str, ...]) -> bool:
+    if role == "super_admin":
+        return True
+
+    role_rank = _role_rank(role)
+    if role_rank < 0:
+        return False
+
+    return any(role_rank >= _role_rank(allowed_role) for allowed_role in allowed_roles)
 
 
 def get_current_user(
@@ -68,20 +85,18 @@ def require_admin(user: dict = Depends(get_current_user)):
 
 def require_role(*allowed_roles: str):
     """
-    Factory that returns a FastAPI dependency enforcing one of the allowed roles.
-    super_admin always passes regardless of what roles are listed.
+    Factory that returns a FastAPI dependency enforcing the minimum role level.
+    Higher-privilege roles inherit permissions from lower ones.
 
     Usage:
         @router.post("/sensitive")
-        def endpoint(_user=Depends(require_role("finance", "super_admin"))):
+        def endpoint(_user=Depends(require_role("finance"))):
     """
     def _dep(user: dict = Depends(require_admin)):
         if user.get("role") == "service_role":
             return user
         role = user.get("admin_role")
-        if role == "super_admin":
-            return user
-        if role not in allowed_roles:
+        if not _has_required_role(role, allowed_roles):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Requires one of: {', '.join(allowed_roles)}",

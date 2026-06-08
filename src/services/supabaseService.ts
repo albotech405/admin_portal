@@ -518,6 +518,72 @@ export interface SosSession {
   [key: string]: unknown
 }
 
+export type LiveLocationSessionType = 'ride' | 'sos'
+export type LiveLocationShareSource = 'trip_tracking' | 'manual_live_share' | 'sos'
+export type LiveLocationParticipantType = 'driver' | 'customer'
+export type LiveLocationStatus = 'active' | 'stale' | 'ended' | 'manually_stopped' | 'expired'
+
+export interface LiveLocationPoint {
+  latitude: number
+  longitude: number
+  heading?: number | null
+  speed?: number | null
+  accuracy?: number | null
+  timestamp: string
+}
+
+export interface LiveLocationParticipant {
+  participant_type: LiveLocationParticipantType
+  name?: string
+  phone?: string
+  is_live: boolean
+  status: LiveLocationStatus
+  source: LiveLocationShareSource
+  started_at?: string
+  expires_at?: string
+  stopped_at?: string
+  stop_reason?: string
+  last_updated_at?: string
+  point?: LiveLocationPoint
+}
+
+export interface LiveLocationSession {
+  id: string
+  type: LiveLocationSessionType
+  status: LiveLocationStatus
+  source: LiveLocationShareSource
+  started_at?: string
+  expires_at?: string
+  ended_at?: string
+  stopped_at?: string
+  stop_reason?: string
+  stale_after_seconds: number
+  ride_id?: string | null
+  sos_session_id?: string | null
+  customer_id?: string | null
+  customer_name?: string
+  customer_phone?: string
+  driver_id?: string | null
+  driver_name?: string
+  driver_phone?: string
+  pickup?: { name?: string; latitude: number; longitude: number }
+  destination?: { name?: string; latitude: number; longitude: number }
+  stops?: Array<{ name?: string; latitude: number; longitude: number }>
+  route_path?: Array<{ latitude: number; longitude: number }>
+  last_location_timestamp?: string
+  participants: {
+    driver?: LiveLocationParticipant
+    customer?: LiveLocationParticipant
+  }
+}
+
+export interface LiveLocationSessionFilters {
+  status?: LiveLocationStatus | 'all_live'
+  type?: LiveLocationSessionType | 'all'
+  search?: string
+  includeHistory?: boolean
+}
+
 // ---- Support ----
 export interface SupportTicket {
   id: string
@@ -2249,6 +2315,505 @@ class AlboTaxService {
     } catch {
       return this.getDashboardMetrics()
     }
+  }
+
+  async getLiveLocationSessions(filters: LiveLocationSessionFilters = {}): Promise<LiveLocationSession[]> {
+    try {
+      const params: Record<string, string> = {}
+      if (filters.status && filters.status !== 'all_live') params.status = filters.status
+      if (filters.type && filters.type !== 'all') params.type = filters.type
+      if (filters.search) params.search = filters.search
+
+      const response = await this.api.get('/live-location/admin/sessions', { params })
+      const data = Array.isArray(response.data) ? response.data : response.data.sessions || []
+      return this.filterLiveLocationSessions(data.map((item: unknown) => this.normalizeLiveLocationSession(item)), filters)
+    } catch {
+      return this.getFallbackLiveLocationSessions(filters)
+    }
+  }
+
+  async getRecentLiveLocationSessions(filters: LiveLocationSessionFilters = {}): Promise<LiveLocationSession[]> {
+    try {
+      const params: Record<string, string> = {}
+      if (filters.search) params.search = filters.search
+      if (filters.type && filters.type !== 'all') params.type = filters.type
+
+      const response = await this.api.get('/live-location/admin/sessions/history', { params })
+      const data = Array.isArray(response.data) ? response.data : response.data.sessions || []
+      return this.filterLiveLocationSessions(data.map((item: unknown) => this.normalizeLiveLocationSession(item)), {
+        ...filters,
+        includeHistory: true,
+      })
+    } catch {
+      const sessions = await this.getFallbackLiveLocationSessions({ ...filters, includeHistory: true })
+      return sessions.filter((session) => session.status !== 'active' && session.status !== 'stale')
+    }
+  }
+
+  async getLiveLocationSession(locator: {
+    sessionId?: string
+    rideId?: string
+    sosSessionId?: string
+  }): Promise<LiveLocationSession | null> {
+    try {
+      if (locator.sessionId) {
+        const response = await this.api.get(`/live-location/admin/sessions/${locator.sessionId}`)
+        return this.normalizeLiveLocationSession(response.data)
+      }
+      if (locator.rideId) {
+        const response = await this.api.get(`/live-location/admin/rides/${locator.rideId}`)
+        return this.normalizeLiveLocationSession(response.data)
+      }
+      if (locator.sosSessionId) {
+        const response = await this.api.get(`/live-location/admin/sos/${locator.sosSessionId}`)
+        return this.normalizeLiveLocationSession(response.data)
+      }
+    } catch {
+      // Fall back to current endpoints below.
+    }
+
+    if (locator.rideId) {
+      const [ride, driverLocations] = await Promise.all([
+        this.getRideDetail(locator.rideId),
+        this.getDriverLocations(false).catch(() => []),
+      ])
+      return this.buildRideLiveLocationSession(ride, driverLocations)
+    }
+
+    if (locator.sosSessionId) {
+      const sos = await this.getSosSessionDetail(locator.sosSessionId)
+      return this.buildSosLiveLocationSession(sos)
+    }
+
+    if (locator.sessionId) {
+      const sessions = await this.getFallbackLiveLocationSessions({ includeHistory: true })
+      return sessions.find((session) => session.id === locator.sessionId) ?? null
+    }
+
+    return null
+  }
+
+  subscribeToLiveLocationSessions(
+    filters: LiveLocationSessionFilters,
+    onUpdate: (sessions: LiveLocationSession[]) => void,
+    onError?: (error: Error) => void,
+    intervalMs = 15000,
+  ): () => void {
+    let cancelled = false
+
+    const load = async () => {
+      try {
+        const sessions = await this.getLiveLocationSessions(filters)
+        if (!cancelled) onUpdate(sessions)
+      } catch (error) {
+        if (!cancelled && onError) onError(error instanceof Error ? error : new Error('Failed to load live location sessions'))
+      }
+    }
+
+    void load()
+    const intervalId = window.setInterval(() => void load(), intervalMs)
+    return () => {
+      cancelled = true
+      window.clearInterval(intervalId)
+    }
+  }
+
+  subscribeToLiveLocationSession(
+    locator: { sessionId?: string; rideId?: string; sosSessionId?: string },
+    onUpdate: (session: LiveLocationSession | null) => void,
+    onError?: (error: Error) => void,
+    intervalMs = 10000,
+  ): () => void {
+    let cancelled = false
+
+    const load = async () => {
+      try {
+        const session = await this.getLiveLocationSession(locator)
+        if (!cancelled) onUpdate(session)
+      } catch (error) {
+        if (!cancelled && onError) onError(error instanceof Error ? error : new Error('Failed to load live location session'))
+      }
+    }
+
+    void load()
+    const intervalId = window.setInterval(() => void load(), intervalMs)
+    return () => {
+      cancelled = true
+      window.clearInterval(intervalId)
+    }
+  }
+
+  async recordLiveLocationView(body: {
+    entity_viewed: string
+    session_type: 'trip_tracking' | 'sos_tracking'
+    session_id?: string
+    role?: string
+  }): Promise<void> {
+    try {
+      await this.api.post('/admin/audit/log', {
+        action: 'live_location_view',
+        target_id: body.session_id ?? body.entity_viewed,
+        target_table: body.session_type,
+        metadata: {
+          entity_viewed: body.entity_viewed,
+          session_type: body.session_type,
+          role: body.role,
+        },
+      })
+    } catch (error) {
+      console.warn('Live location audit logging unavailable:', error)
+    }
+  }
+
+  private async getFallbackLiveLocationSessions(filters: LiveLocationSessionFilters): Promise<LiveLocationSession[]> {
+    const activeRideStatuses = ['in_progress', 'driver_en_route', 'arrived']
+    const ridePromises = activeRideStatuses.map((status) => this.getRides(status).catch(() => []))
+    const [rideGroups, driverLocations, sosActive, rideHistory, sosAll] = await Promise.all([
+      Promise.all(ridePromises),
+      this.getDriverLocations(false).catch(() => []),
+      this.getSosSessions('active').catch(() => []),
+      filters.includeHistory ? this.getRideHistory(25, 0).catch(() => []) : Promise.resolve([]),
+      filters.includeHistory ? this.getSosSessions().catch(() => []) : Promise.resolve([]),
+    ])
+
+    const rides = rideGroups.flat()
+    const rideSessions = rides.map((ride) => this.buildRideLiveLocationSession(ride, driverLocations))
+    const sosSessions = sosActive.map((session) => this.buildSosLiveLocationSession(session))
+
+    const historyRideSessions = filters.includeHistory
+      ? rideHistory.map((ride) => this.buildRideLiveLocationSession(ride, driverLocations, true))
+      : []
+    const historySosSessions = filters.includeHistory
+      ? sosAll
+          .filter((session) => session.status !== 'active')
+          .map((session) => this.buildSosLiveLocationSession(session, true))
+      : []
+
+    const merged = [...rideSessions, ...sosSessions, ...historyRideSessions, ...historySosSessions]
+    const deduped = Array.from(new Map(merged.map((session) => [session.id, session])).values())
+    return this.filterLiveLocationSessions(deduped, filters)
+  }
+
+  private filterLiveLocationSessions(
+    sessions: LiveLocationSession[],
+    filters: LiveLocationSessionFilters,
+  ): LiveLocationSession[] {
+    const search = filters.search?.trim().toLowerCase()
+
+    return sessions.filter((session) => {
+      if (!filters.includeHistory && !['active', 'stale'].includes(session.status)) return false
+      if (filters.type && filters.type !== 'all' && session.type !== filters.type) return false
+      if (filters.status && filters.status !== 'all_live') {
+        if (filters.status === 'active' && session.status !== 'active') return false
+        if (filters.status === 'stale' && session.status !== 'stale') return false
+        if (filters.status === 'ended' && session.status !== 'ended') return false
+        if (filters.status === 'manually_stopped' && session.status !== 'manually_stopped') return false
+        if (filters.status === 'expired' && session.status !== 'expired') return false
+      }
+
+      if (!search) return true
+      const haystack = [
+        session.id,
+        session.ride_id,
+        session.sos_session_id,
+        session.customer_name,
+        session.customer_phone,
+        session.driver_name,
+        session.driver_phone,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+
+      return haystack.includes(search)
+    })
+  }
+
+  private buildRideLiveLocationSession(
+    ride: Ride | RideDetailResponse,
+    driverLocations: DriverLocation[],
+    forceHistory = false,
+  ): LiveLocationSession {
+    const driverLocation = driverLocations.find((item) => item.driver_id === ride.driver_id)
+    const driverLastUpdated = driverLocation?.updated_at ?? driverLocation?.last_updated
+    const driverStatus = this.resolveLiveLocationStatus({
+      status: forceHistory ? 'ended' : undefined,
+      is_live: !forceHistory && Boolean(driverLastUpdated),
+      ended_at: ride.completed_at ?? ride.cancelled_at,
+      last_updated_at: driverLastUpdated,
+      stale_after_seconds: 90,
+      stop_reason: ride.cancellation_reason,
+    })
+
+    return {
+      id: `ride:${ride.id}`,
+      type: 'ride',
+      status: forceHistory ? (ride.cancelled_at ? 'ended' : 'ended') : driverStatus,
+      source: 'trip_tracking',
+      started_at: ride.started_at ?? ride.created_at,
+      expires_at: ride.completed_at ?? ride.cancelled_at,
+      ended_at: ride.completed_at ?? ride.cancelled_at,
+      stop_reason: ride.cancellation_reason,
+      stale_after_seconds: 90,
+      ride_id: ride.id,
+      sos_session_id: null,
+      customer_id: ride.customer_id,
+      customer_name: ride.customer_name,
+      customer_phone: ride.customer_phone,
+      driver_id: ride.driver_id,
+      driver_name: ride.driver_name,
+      driver_phone: ride.driver_phone,
+      pickup: ride.picking_point,
+      destination: ride.destination,
+      stops: 'stops' in ride && Array.isArray(ride.stops) ? ride.stops : [],
+      last_location_timestamp: driverLastUpdated,
+      participants: {
+        driver: driverLocation
+          ? {
+              participant_type: 'driver',
+              name: ride.driver_name ?? driverLocation.full_name,
+              phone: ride.driver_phone ?? driverLocation.phone_number,
+              is_live: driverStatus === 'active',
+              status: driverStatus,
+              source: 'trip_tracking',
+              started_at: ride.started_at ?? ride.created_at,
+              expires_at: ride.completed_at ?? ride.cancelled_at,
+              stop_reason: ride.cancellation_reason,
+              last_updated_at: driverLastUpdated,
+              point: {
+                latitude: driverLocation.latitude,
+                longitude: driverLocation.longitude,
+                timestamp: driverLastUpdated ?? ride.started_at ?? ride.created_at,
+              },
+            }
+          : undefined,
+      },
+    }
+  }
+
+  private buildSosLiveLocationSession(session: SosSession, forceHistory = false): LiveLocationSession {
+    const customerPoint = this.extractLiveLocationPoint(
+      (session as Record<string, unknown>).last_customer_location,
+      session,
+      ['customer_', 'user_', 'last_known_'],
+    )
+    const driverPoint = this.extractLiveLocationPoint(
+      (session as Record<string, unknown>).last_driver_location,
+      session,
+      ['driver_'],
+    )
+    const customerUpdatedAt = this.extractTimestamp(session, ['last_customer_update_at', 'customer_last_updated_at', 'last_updated_at'])
+    const driverUpdatedAt = this.extractTimestamp(session, ['last_driver_update_at', 'driver_last_updated_at'])
+    const endedAt = this.extractTimestamp(session, ['ended_at', 'resolved_at', 'stopped_at'])
+    const expiresAt = this.extractTimestamp(session, ['expires_at'])
+    const status = this.resolveLiveLocationStatus({
+      status: forceHistory ? 'ended' : (session.status as string | undefined),
+      ended_at: endedAt,
+      expires_at: expiresAt,
+      last_updated_at: customerUpdatedAt ?? driverUpdatedAt,
+      stale_after_seconds: Number((session as Record<string, unknown>).stale_after_seconds ?? 120),
+      stop_reason: typeof (session as Record<string, unknown>).stop_reason === 'string' ? (session as Record<string, unknown>).stop_reason as string : undefined,
+    })
+
+    return {
+      id: `sos:${session.id}`,
+      type: 'sos',
+      status,
+      source: 'sos',
+      started_at: session.created_at,
+      expires_at: expiresAt,
+      ended_at: endedAt,
+      stopped_at: this.extractTimestamp(session, ['stopped_at']),
+      stop_reason: typeof (session as Record<string, unknown>).stop_reason === 'string' ? (session as Record<string, unknown>).stop_reason as string : undefined,
+      stale_after_seconds: Number((session as Record<string, unknown>).stale_after_seconds ?? 120),
+      ride_id: typeof session.ride_id === 'string' ? session.ride_id : null,
+      sos_session_id: session.id,
+      customer_id: typeof session.triggered_by === 'string' ? session.triggered_by : null,
+      customer_name: typeof (session as Record<string, unknown>).customer_name === 'string' ? (session as Record<string, unknown>).customer_name as string : undefined,
+      customer_phone: typeof (session as Record<string, unknown>).customer_phone === 'string' ? (session as Record<string, unknown>).customer_phone as string : undefined,
+      driver_id: typeof (session as Record<string, unknown>).driver_id === 'string' ? (session as Record<string, unknown>).driver_id as string : null,
+      driver_name: typeof (session as Record<string, unknown>).driver_name === 'string' ? (session as Record<string, unknown>).driver_name as string : undefined,
+      driver_phone: typeof (session as Record<string, unknown>).driver_phone === 'string' ? (session as Record<string, unknown>).driver_phone as string : undefined,
+      last_location_timestamp: customerUpdatedAt ?? driverUpdatedAt,
+      participants: {
+        customer: customerPoint
+          ? {
+              participant_type: 'customer',
+              name: typeof (session as Record<string, unknown>).customer_name === 'string' ? (session as Record<string, unknown>).customer_name as string : undefined,
+              phone: typeof (session as Record<string, unknown>).customer_phone === 'string' ? (session as Record<string, unknown>).customer_phone as string : undefined,
+              is_live: status === 'active',
+              status,
+              source: 'sos',
+              started_at: session.created_at,
+              expires_at: expiresAt,
+              stopped_at: this.extractTimestamp(session, ['stopped_at']),
+              stop_reason: typeof (session as Record<string, unknown>).stop_reason === 'string' ? (session as Record<string, unknown>).stop_reason as string : undefined,
+              last_updated_at: customerUpdatedAt,
+              point: customerPoint,
+            }
+          : undefined,
+        driver: driverPoint
+          ? {
+              participant_type: 'driver',
+              name: typeof (session as Record<string, unknown>).driver_name === 'string' ? (session as Record<string, unknown>).driver_name as string : undefined,
+              phone: typeof (session as Record<string, unknown>).driver_phone === 'string' ? (session as Record<string, unknown>).driver_phone as string : undefined,
+              is_live: status === 'active',
+              status,
+              source: 'sos',
+              started_at: session.created_at,
+              expires_at: expiresAt,
+              stopped_at: this.extractTimestamp(session, ['stopped_at']),
+              stop_reason: typeof (session as Record<string, unknown>).stop_reason === 'string' ? (session as Record<string, unknown>).stop_reason as string : undefined,
+              last_updated_at: driverUpdatedAt,
+              point: driverPoint,
+            }
+          : undefined,
+      },
+    }
+  }
+
+  private normalizeLiveLocationSession(payload: unknown): LiveLocationSession {
+    const data = (payload ?? {}) as Record<string, any>
+    const driver = data.driver ?? data.participants?.driver
+    const customer = data.customer ?? data.participants?.customer
+    const status = this.resolveLiveLocationStatus({
+      status: typeof data.status === 'string' ? data.status : undefined,
+      is_live: data.is_live,
+      ended_at: data.ended_at,
+      expires_at: data.expires_at,
+      stopped_at: data.stopped_at,
+      last_updated_at: data.last_updated_at ?? data.last_customer_update_at ?? data.last_driver_update_at,
+      stale_after_seconds: Number(data.stale_after_seconds ?? 120),
+      stop_reason: data.stop_reason,
+    })
+
+    return {
+      id: String(data.id ?? data.session_id ?? `session:${Date.now()}`),
+      type: data.type === 'sos' ? 'sos' : 'ride',
+      status,
+      source: data.source === 'sos' ? 'sos' : data.source === 'manual_live_share' ? 'manual_live_share' : 'trip_tracking',
+      started_at: data.started_at,
+      expires_at: data.expires_at,
+      ended_at: data.ended_at,
+      stopped_at: data.stopped_at,
+      stop_reason: data.stop_reason,
+      stale_after_seconds: Number(data.stale_after_seconds ?? 120),
+      ride_id: data.ride_id ?? null,
+      sos_session_id: data.sos_session_id ?? null,
+      customer_id: data.customer_id ?? null,
+      customer_name: data.customer_name,
+      customer_phone: data.customer_phone,
+      driver_id: data.driver_id ?? null,
+      driver_name: data.driver_name,
+      driver_phone: data.driver_phone,
+      pickup: data.pickup,
+      destination: data.destination,
+      stops: Array.isArray(data.stops) ? data.stops : [],
+      route_path: Array.isArray(data.route_path) ? data.route_path : undefined,
+      last_location_timestamp: data.last_updated_at ?? data.last_customer_update_at ?? data.last_driver_update_at,
+      participants: {
+        driver: this.normalizeLiveLocationParticipant(driver, 'driver', status, data),
+        customer: this.normalizeLiveLocationParticipant(customer, 'customer', status, data),
+      },
+    }
+  }
+
+  private normalizeLiveLocationParticipant(
+    payload: Record<string, any> | undefined,
+    participantType: LiveLocationParticipantType,
+    fallbackStatus: LiveLocationStatus,
+    sessionData: Record<string, any>,
+  ): LiveLocationParticipant | undefined {
+    if (!payload) return undefined
+    const lastUpdatedAt = payload.last_updated_at ?? payload.timestamp ?? sessionData[`last_${participantType}_update_at`]
+    const status = this.resolveLiveLocationStatus({
+      status: payload.status,
+      is_live: payload.is_live,
+      ended_at: sessionData.ended_at,
+      expires_at: payload.expires_at ?? sessionData.expires_at,
+      stopped_at: payload.stopped_at ?? sessionData.stopped_at,
+      last_updated_at: lastUpdatedAt,
+      stale_after_seconds: Number(payload.stale_after_seconds ?? sessionData.stale_after_seconds ?? 120),
+      stop_reason: payload.stop_reason ?? sessionData.stop_reason,
+    })
+
+    const point = this.extractLiveLocationPoint(payload, payload, [])
+    return {
+      participant_type: participantType,
+      name: payload.name,
+      phone: payload.phone,
+      is_live: status === 'active',
+      status,
+      source: payload.source === 'sos' ? 'sos' : payload.source === 'manual_live_share' ? 'manual_live_share' : 'trip_tracking',
+      started_at: payload.started_at ?? sessionData.started_at,
+      expires_at: payload.expires_at ?? sessionData.expires_at,
+      stopped_at: payload.stopped_at ?? sessionData.stopped_at,
+      stop_reason: payload.stop_reason ?? sessionData.stop_reason,
+      last_updated_at: lastUpdatedAt,
+      point,
+    }
+  }
+
+  private resolveLiveLocationStatus(input: {
+    status?: string
+    is_live?: boolean
+    ended_at?: string
+    expires_at?: string
+    stopped_at?: string
+    last_updated_at?: string
+    stale_after_seconds?: number
+    stop_reason?: string
+  }): LiveLocationStatus {
+    const rawStatus = input.status?.toLowerCase()
+    if (rawStatus === 'active' || rawStatus === 'stale' || rawStatus === 'ended' || rawStatus === 'manually_stopped' || rawStatus === 'expired') {
+      return rawStatus
+    }
+    if (input.stopped_at || rawStatus === 'stopped' || rawStatus === 'manually_stopped') return 'manually_stopped'
+    if (input.ended_at || rawStatus === 'resolved' || rawStatus === 'cancelled' || rawStatus === 'completed') return 'ended'
+    if (input.expires_at && new Date(input.expires_at).getTime() <= Date.now()) return 'expired'
+    if (!input.last_updated_at) return input.is_live === false ? 'stale' : 'active'
+
+    const staleAfterMs = (input.stale_after_seconds ?? 120) * 1000
+    const ageMs = Date.now() - new Date(input.last_updated_at).getTime()
+    if (!Number.isFinite(ageMs) || ageMs < 0) return 'active'
+    return ageMs > staleAfterMs ? 'stale' : 'active'
+  }
+
+  private extractLiveLocationPoint(
+    value: unknown,
+    fallbackObject: Record<string, unknown>,
+    prefixes: string[],
+  ): LiveLocationPoint | undefined {
+    const direct = value as Record<string, unknown> | undefined
+    const candidates = [direct, fallbackObject]
+
+    for (const candidate of candidates) {
+      if (!candidate) continue
+      for (const prefix of prefixes.length > 0 ? prefixes : ['']) {
+        const latitude = candidate[`${prefix}latitude`] ?? candidate[`${prefix}lat`] ?? candidate.latitude ?? candidate.lat
+        const longitude = candidate[`${prefix}longitude`] ?? candidate[`${prefix}lng`] ?? candidate.longitude ?? candidate.lng
+        if (typeof latitude === 'number' && typeof longitude === 'number') {
+          return {
+            latitude,
+            longitude,
+            heading: typeof (candidate[`${prefix}heading`] ?? candidate.heading) === 'number' ? Number(candidate[`${prefix}heading`] ?? candidate.heading) : null,
+            speed: typeof (candidate[`${prefix}speed`] ?? candidate.speed) === 'number' ? Number(candidate[`${prefix}speed`] ?? candidate.speed) : null,
+            accuracy: typeof (candidate[`${prefix}accuracy`] ?? candidate.accuracy) === 'number' ? Number(candidate[`${prefix}accuracy`] ?? candidate.accuracy) : null,
+            timestamp: this.extractTimestamp(candidate, [`${prefix}timestamp`, `${prefix}updated_at`, `${prefix}last_updated_at`, 'timestamp', 'updated_at', 'last_updated_at']) ?? new Date().toISOString(),
+          }
+        }
+      }
+    }
+
+    return undefined
+  }
+
+  private extractTimestamp(source: Record<string, unknown>, keys: string[]): string | undefined {
+    for (const key of keys) {
+      const value = source[key]
+      if (typeof value === 'string' && value.trim().length > 0) return value
+    }
+    return undefined
   }
 
   private normalizeError(error: unknown): {
