@@ -165,8 +165,8 @@ const DriverApprovalTab: React.FC = () => {
         >
           ← Back to list
         </button>
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex items-start justify-between">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h2 className="text-xl font-semibold text-slate-900">{selectedDriver.full_name}</h2>
               <p className="text-sm text-slate-500">{selectedDriver.phone_number}</p>
@@ -174,7 +174,7 @@ const DriverApprovalTab: React.FC = () => {
                 {selectedDriver.verification_status.replace(/_/g, ' ')}
               </span>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               {selectedDriver.verification_status !== 'approved' && (
                 <Button variant="primary" size="sm" onClick={handleApprove} disabled={isProcessing}>
                   Approve Driver
@@ -196,14 +196,14 @@ const DriverApprovalTab: React.FC = () => {
               <div className="space-y-3">
                 {selectedDriver.documents.map((doc) => (
                   <div key={doc.id} className="rounded-xl border border-slate-100 bg-slate-50 p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex flex-wrap items-center gap-3">
                         <span className="text-sm font-medium text-slate-800">{formatDocType(doc.document_type)}</span>
                         <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusColor[doc.status] ?? 'bg-gray-100 text-gray-700'}`}>
                           {doc.status}
                         </span>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-3">
                         <button
                           className="text-xs text-blue-600 hover:underline"
                           onClick={() => setExpandedDocId(expandedDocId === doc.id ? null : doc.id)}
@@ -237,7 +237,7 @@ const DriverApprovalTab: React.FC = () => {
                     )}
 
                     {rejectingDocId === doc.id && (
-                      <div className="mt-3 flex gap-2">
+                      <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                         <input
                           className="flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm"
                           placeholder="Rejection reason…"
@@ -281,14 +281,14 @@ const DriverApprovalTab: React.FC = () => {
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-lg font-semibold text-slate-800">Driver Approval Queue</h2>
-        <div className="flex gap-2">
+        <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
           {['pending', 'under_review', 'approved', 'rejected', 'all'].map((s) => (
             <button
               key={s}
               onClick={() => setFilterStatus(s)}
-              className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${filterStatus === s ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+              className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-colors ${filterStatus === s ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
             >
               {s.replace(/_/g, ' ')}
             </button>
@@ -307,14 +307,14 @@ const DriverApprovalTab: React.FC = () => {
           {drivers.map((driver) => (
             <div
               key={driver.id}
-              className="flex cursor-pointer items-center justify-between rounded-xl border border-slate-100 bg-white p-4 shadow-sm transition hover:border-blue-200 hover:shadow-md"
+              className="flex cursor-pointer flex-col gap-3 rounded-xl border border-slate-100 bg-white p-4 shadow-sm transition hover:border-blue-200 hover:shadow-md sm:flex-row sm:items-center sm:justify-between"
               onClick={() => setSelectedDriver(driver)}
             >
               <div>
                 <p className="font-medium text-slate-900">{driver.full_name ?? 'Unknown'}</p>
                 <p className="text-sm text-slate-500">{driver.phone_number} · {driver.vehicle_type}</p>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusColor[driver.verification_status] ?? 'bg-gray-100 text-gray-700'}`}>
                   {driver.verification_status.replace(/_/g, ' ')}
                 </span>
@@ -408,15 +408,15 @@ const PaymentsTab: React.FC = () => {
         <button className="mb-4 flex items-center gap-2 text-sm text-blue-600 hover:underline" onClick={() => setSelected(null)}>
           ← Back to list
         </button>
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex items-start justify-between">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h2 className="text-xl font-semibold text-slate-900">{selected.full_name ?? selected.sender_name ?? 'Driver'}</h2>
               <p className="text-sm text-slate-500">{selected.phone_number}</p>
               <p className="mt-1 text-2xl font-bold text-slate-900">{selected.amount.toLocaleString()} CDF</p>
               <p className="text-sm text-slate-500">{selected.payment_method?.replace(/_/g, ' ')} · {selected.reference_number ?? 'No ref'}</p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button variant="primary" size="sm" onClick={handleApprove} disabled={isProcessing}>Approve</Button>
               <Button variant="danger" size="sm" onClick={() => setShowRejectModal(true)} disabled={isProcessing}>Reject</Button>
             </div>
@@ -426,7 +426,7 @@ const PaymentsTab: React.FC = () => {
 
           {selected.proof_image_url && (
             <div className="mt-6">
-              <div className="flex items-center justify-between mb-2">
+              <div className="mb-2 flex items-center justify-between gap-3">
                 <h3 className="font-medium text-slate-700">Payment Proof</h3>
                 <button className="text-xs text-blue-600 hover:underline" onClick={() => setShowProof(!showProof)}>
                   {showProof ? 'Hide' : 'View proof'}
@@ -474,14 +474,14 @@ const PaymentsTab: React.FC = () => {
           {payments.map((p) => (
             <div
               key={p.id}
-              className="flex cursor-pointer items-center justify-between rounded-xl border border-slate-100 bg-white p-4 shadow-sm transition hover:border-blue-200 hover:shadow-md"
+              className="flex cursor-pointer flex-col gap-3 rounded-xl border border-slate-100 bg-white p-4 shadow-sm transition hover:border-blue-200 hover:shadow-md sm:flex-row sm:items-center sm:justify-between"
               onClick={() => setSelected(p)}
             >
               <div>
                 <p className="font-medium text-slate-900">{p.full_name ?? p.sender_name ?? 'Driver'}</p>
                 <p className="text-sm text-slate-500">{p.payment_method?.replace(/_/g, ' ')} · {p.reference_number ?? '—'}</p>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <span className="font-semibold text-slate-900">{p.amount.toLocaleString()} CDF</span>
                 <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-800">pending</span>
                 <svg className="h-4 w-4 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
@@ -568,7 +568,7 @@ const AddDriverTab: React.FC = () => {
       )}
       {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label className="block mb-1 text-sm font-medium text-slate-700">Full Name *</label>
             <input name="full_name" value={form.full_name} onChange={handleChange} required
@@ -732,14 +732,15 @@ export const OperationsView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>('driver_approval')
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 px-0 py-2 sm:py-4">
       <div>
-        <h1 className="text-3xl font-bold text-slate-950">Operations</h1>
+        <h1 className="text-2xl font-bold text-slate-950 sm:text-3xl">Operations</h1>
         <p className="mt-1 text-slate-500">Driver approvals, payment verification, and user management</p>
       </div>
 
       {/* Tab bar */}
-      <div className="flex gap-2 border-b border-slate-200 pb-0">
+      <div className="-mx-4 overflow-x-auto border-b border-slate-200 px-4 pb-1 sm:mx-0 sm:px-0">
+        <div className="flex min-w-max gap-2 pb-1">
         {TABS.map((tab) => (
           <button
             key={tab.id}
@@ -753,10 +754,11 @@ export const OperationsView: React.FC = () => {
             {tab.label}
           </button>
         ))}
+        </div>
       </div>
 
       {/* Tab content */}
-      <div className="rounded-2xl border border-slate-100 bg-white/80 p-6 shadow-sm">
+      <div className="rounded-2xl border border-slate-100 bg-white/80 p-4 shadow-sm sm:p-6">
         {activeTab === 'driver_approval' && <DriverApprovalTab />}
         {activeTab === 'payments' && <PaymentsTab />}
         {activeTab === 'add_driver' && <AddDriverTab />}

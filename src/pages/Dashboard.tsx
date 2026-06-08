@@ -64,11 +64,11 @@ export const Dashboard: React.FC = () => {
 
   return (
     <div className="space-y-8">
-      <div className="rounded-[2rem] border border-blue-100 bg-gradient-to-br from-white via-blue-50 to-sky-100 p-8 shadow-[0_24px_60px_-32px_rgba(37,99,235,0.45)]">
+      <div className="rounded-[2rem] border border-blue-100 bg-gradient-to-br from-white via-blue-50 to-sky-100 p-5 shadow-[0_24px_60px_-32px_rgba(37,99,235,0.45)] sm:p-8">
         <p className="text-sm font-semibold uppercase tracking-[0.3em] text-blue-600">
           Operations Overview
         </p>
-        <h1 className="mt-2 text-4xl font-bold text-slate-950">Dashboard</h1>
+        <h1 className="mt-2 text-3xl font-bold text-slate-950 sm:text-4xl">Dashboard</h1>
       </div>
 
       {error && (
@@ -79,7 +79,7 @@ export const Dashboard: React.FC = () => {
 
       {/* SOS red alert banner */}
       {metrics && (metrics.sos_active_count ?? 0) > 0 && (
-        <div className="flex items-center justify-between rounded-2xl border border-red-300 bg-red-600 px-5 py-4 text-white shadow-lg">
+        <div className="flex flex-col gap-4 rounded-2xl border border-red-300 bg-red-600 px-5 py-4 text-white shadow-lg sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <span className="animate-pulse text-2xl">🆘</span>
             <div>
@@ -87,7 +87,7 @@ export const Dashboard: React.FC = () => {
               <p className="text-sm text-red-100">Requires immediate response</p>
             </div>
           </div>
-          <Button variant="secondary" size="sm" onClick={() => navigate('/safety')}>View SOS Queue →</Button>
+          <Button variant="secondary" size="sm" className="w-full sm:w-auto" onClick={() => navigate('/safety')}>View SOS Queue →</Button>
         </div>
       )}
 
@@ -148,21 +148,21 @@ export const Dashboard: React.FC = () => {
           {/* Support & Safety quick stats */}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <Card className={(metrics.open_tickets_count ?? 0) > 0 ? 'border-amber-200 bg-amber-50' : ''}>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Open Support Tickets</p>
                   <p className="mt-2 text-3xl font-bold text-amber-600">{metrics.open_tickets_count ?? '—'}</p>
                 </div>
-                <Button size="sm" variant="secondary" onClick={() => navigate('/support')}>View queue →</Button>
+                <Button size="sm" variant="secondary" className="w-full sm:w-auto" onClick={() => navigate('/support')}>View queue →</Button>
               </div>
             </Card>
             <Card className={(metrics.sos_active_count ?? 0) > 0 ? 'border-red-200 bg-red-50' : ''}>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Active SOS Incidents</p>
                   <p className={`mt-2 text-3xl font-bold ${(metrics.sos_active_count ?? 0) > 0 ? 'text-red-600' : 'text-slate-400'}`}>{metrics.sos_active_count ?? '—'}</p>
                 </div>
-                <Button size="sm" variant={((metrics.sos_active_count ?? 0) > 0) ? 'danger' : 'secondary'} onClick={() => navigate('/safety')}>View Safety →</Button>
+                <Button size="sm" className="w-full sm:w-auto" variant={((metrics.sos_active_count ?? 0) > 0) ? 'danger' : 'secondary'} onClick={() => navigate('/safety')}>View Safety →</Button>
               </div>
             </Card>
           </div>

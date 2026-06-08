@@ -246,10 +246,10 @@ export const AdminLayout: React.FC = () => {
           </nav>
         </aside>
 
-        <div className="flex min-h-screen min-w-0 flex-1 flex-col">
+        <div className="flex min-h-screen min-w-0 flex-1 flex-col overflow-x-hidden">
           <header className="sticky top-0 z-30 border-b border-white/60 bg-white/70 backdrop-blur-xl">
-            <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6 lg:px-8">
-              <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-start justify-between gap-3 px-4 py-3 sm:items-center sm:px-6 sm:py-4 lg:px-8">
+              <div className="min-w-0 flex items-center gap-3">
                 <button
                   type="button"
                   onClick={() => setIsMobileNavOpen(true)}
@@ -260,12 +260,12 @@ export const AdminLayout: React.FC = () => {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7h16M4 12h16M4 17h16" />
                   </svg>
                 </button>
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-blue-600">Control Center</p>
-                  <p className="text-lg font-semibold text-slate-900">Albo Taxi Admin</p>
+                <div className="min-w-0">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-blue-600 sm:tracking-[0.28em]">Control Center</p>
+                  <p className="truncate text-base font-semibold text-slate-900 sm:text-lg">Albo Taxi Admin</p>
                 </div>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex w-full items-center justify-between gap-3 sm:w-auto sm:justify-end">
                 {user && (
                   <div className="hidden rounded-2xl border border-slate-200/80 bg-white px-4 py-2 text-right shadow-sm sm:block">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Session</p>
@@ -282,7 +282,7 @@ export const AdminLayout: React.FC = () => {
             </div>
           </header>
 
-          <main className="relative flex-1 px-4 py-8 sm:px-6 lg:px-8">
+          <main className="relative flex-1 px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
             <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-[radial-gradient(circle_at_top,rgba(56,189,248,0.12),transparent_70%)]" />
             <Outlet />
           </main>
