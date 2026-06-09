@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { Card, Button, Badge, Modal, Table } from '../components'
-import { supabaseService } from '../services/supabaseService'
+import { Driver, supabaseService } from '../services/supabaseService'
 
 type Customer = {
   id: string
@@ -49,6 +49,7 @@ const WARNING_CATEGORIES = ['rate_abuse', 'no_show', 'safety', 'payment_fraud', 
 
 export const CustomersView: React.FC = () => {
   const [customers, setCustomers] = useState<Customer[]>([])
+  const [drivers, setDrivers] = useState<Driver[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -88,6 +89,19 @@ export const CustomersView: React.FC = () => {
   const [newRating, setNewRating] = useState('')
   const [ratingReason, setRatingReason] = useState('')
 
+  const normalizePhone = (value?: string | null) => (value || '').replace(/\D/g, '')
+
+  const findMatchingDriver = useCallback((customer: Customer | CustomerDetail | null) => {
+    if (!customer) return null
+    const customerId = customer.id
+    const customerPhone = normalizePhone(customer.phone_number as string | undefined)
+    return drivers.find((driver) => {
+      if (driver.user_id && driver.user_id === customerId) return true
+      const driverPhone = normalizePhone(driver.phone_number)
+      return !!customerPhone && !!driverPhone && customerPhone === driverPhone
+    }) || null
+  }, [drivers])
+
   const openNotifyModal = (target: 'all' | 'individual') => {
     setNotifyTarget(target)
     setNotifyTitle('')
@@ -122,8 +136,12 @@ export const CustomersView: React.FC = () => {
       if (search) params.search = search
       if (statusFilter !== 'all') params.status = statusFilter
       if (genderFilter !== 'all') params.gender = genderFilter
-      const data = await supabaseService.getCustomers(params)
-      setCustomers(data as Customer[])
+      const [customerData, driverData] = await Promise.all([
+        supabaseService.getCustomers(params),
+        supabaseService.getDrivers(),
+      ])
+      setCustomers(customerData as Customer[])
+      setDrivers(driverData)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load customers')
@@ -267,6 +285,7 @@ export const CustomersView: React.FC = () => {
 
   if (selectedCustomer) {
     const isBanned = selectedCustomer.is_banned || selectedCustomer.status === 'banned'
+    const matchedDriver = findMatchingDriver(selectedCustomer)
     return (
       <div className="space-y-6">
         <button onClick={() => setSelectedCustomer(null)} className="text-blue-600 hover:text-blue-700 font-semibold text-sm">
@@ -279,6 +298,7 @@ export const CustomersView: React.FC = () => {
             <div className="flex flex-wrap items-center gap-3 mt-2">
               {selectedCustomer.phone_number && <span className="text-slate-600 text-sm">{selectedCustomer.phone_number}</span>}
               <Badge status={isBanned ? 'rejected' : 'approved'}>{isBanned ? 'Banned' : (selectedCustomer.status || 'Active')}</Badge>
+              <Badge status={matchedDriver ? 'info' : 'default'}>{matchedDriver ? 'Customer + Driver' : 'Customer only'}</Badge>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -316,6 +336,7 @@ export const CustomersView: React.FC = () => {
                 ['Gender', (selectedCustomer.gender as string) || 'not set'],
                 ['Last Active', (selectedCustomer.last_active_at as string) ? new Date(selectedCustomer.last_active_at as string).toLocaleString() : 'N/A'],
                 ['Status', selectedCustomer.status || 'active'],
+                ['Platform Roles', matchedDriver ? 'Customer and Driver' : 'Customer only'],
                 ['Total Trips', String(selectedCustomer.total_trips ?? 0)],
                 ['Rating', selectedCustomer.rating ? Number(selectedCustomer.rating).toFixed(1) : 'N/A'],
                 ['Joined', selectedCustomer.created_at ? new Date(selectedCustomer.created_at).toLocaleDateString() : 'N/A'],
@@ -637,6 +658,7 @@ export const CustomersView: React.FC = () => {
           columns={[
             { key: 'full_name', label: 'Name' },
             { key: 'phone_number', label: 'Phone' },
+            { key: 'platform_roles', label: 'Roles', width: 'w-36' },
             { key: 'gender', label: 'Gender', width: 'w-24' },
             { key: 'status', label: 'Status', width: 'w-28' },
             { key: 'total_trips', label: 'Trips', width: 'w-20' },
@@ -647,6 +669,9 @@ export const CustomersView: React.FC = () => {
             ...c,
             full_name: c.full_name || 'N/A',
             phone_number: c.phone_number || 'N/A',
+            platform_roles: findMatchingDriver(c)
+              ? <Badge status="info">Customer + Driver</Badge>
+              : <Badge status="default">Customer</Badge>,
             gender: (c.gender as string) || '—',
             status: c.is_banned ? 'banned' : (c.status || 'active'),
             total_trips: c.total_trips ?? 0,

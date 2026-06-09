@@ -73,6 +73,7 @@ function App() {
             <Route path="/customers" element={<GuardedRoute path="/customers"><CustomersView /></GuardedRoute>} />
             <Route path="/drivers" element={<GuardedRoute path="/drivers"><DriverApproval /></GuardedRoute>} />
             <Route path="/rides" element={<GuardedRoute path="/rides"><RidesView /></GuardedRoute>} />
+            <Route path="/rides/:rideId" element={<GuardedRoute path="/rides"><RidesView /></GuardedRoute>} />
             <Route path="/payments" element={<GuardedRoute path="/payments"><PaymentVerification /></GuardedRoute>} />
             <Route path="/finance" element={<GuardedRoute path="/finance"><FinanceView /></GuardedRoute>} />
             <Route path="/support" element={<GuardedRoute path="/support"><SupportView /></GuardedRoute>} />

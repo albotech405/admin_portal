@@ -2,6 +2,12 @@ import React, { useState, useEffect, useCallback } from 'react'
 import { Card, Button, Modal, Badge, Table, DocumentPreview } from '../components'
 import { Driver, DriverDocument, supabaseService } from '../services/supabaseService'
 
+type CustomerIdentity = {
+  id: string
+  full_name?: string
+  phone_number?: string
+}
+
 // ── Constants ──────────────────────────────────────────────────────────────
 
 const REJECTION_REASON_CHIPS = [
@@ -95,6 +101,7 @@ function ageInQueue(submittedAt?: string): string {
 
 export const DriverApproval: React.FC = () => {
   const [drivers, setDrivers] = useState<Driver[]>([])
+  const [customers, setCustomers] = useState<CustomerIdentity[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [filterStatus, setFilterStatus] = useState<StatusTab>('pending')
   const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null)
@@ -141,6 +148,18 @@ export const DriverApproval: React.FC = () => {
   const [addDriverError, setAddDriverError] = useState<string | null>(null)
   const [isAddingDriver, setIsAddingDriver] = useState(false)
 
+  const normalizePhone = (value?: string | null) => (value || '').replace(/\D/g, '')
+
+  const findMatchingCustomer = useCallback((driver: Driver | null) => {
+    if (!driver) return null
+    const driverPhone = normalizePhone(driver.phone_number)
+    return customers.find((customer) => {
+      if (driver.user_id && customer.id === driver.user_id) return true
+      const customerPhone = normalizePhone(customer.phone_number)
+      return !!driverPhone && !!customerPhone && customerPhone === driverPhone
+    }) || null
+  }, [customers])
+
   useEffect(() => { loadDrivers() }, [filterStatus])
 
   const openDriverProfile = (driver: Driver, initialTab: ProfileTab = 'Overview') => {
@@ -153,8 +172,12 @@ export const DriverApproval: React.FC = () => {
   const loadDrivers = async () => {
     try {
       setIsLoading(true)
-      const data = await supabaseService.getDrivers(filterStatus !== 'all' ? filterStatus : undefined)
-      setDrivers(data)
+      const [driverData, customerData] = await Promise.all([
+        supabaseService.getDrivers(filterStatus !== 'all' ? filterStatus : undefined),
+        supabaseService.getCustomers(),
+      ])
+      setDrivers(driverData)
+      setCustomers(customerData as CustomerIdentity[])
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load drivers')
@@ -396,6 +419,7 @@ export const DriverApproval: React.FC = () => {
     const listCols = [
       { key: 'full_name', label: 'Driver' },
       { key: 'phone_number', label: 'Phone' },
+      { key: 'platform_roles', label: 'Roles' },
       { key: 'vehicle_type', label: 'Vehicle' },
       { key: 'completeness', label: 'Docs' },
       { key: 'age_in_queue', label: 'Waiting' },
@@ -406,6 +430,9 @@ export const DriverApproval: React.FC = () => {
       _driver: d,
       full_name: d.full_name || '—',
       phone_number: d.phone_number || '—',
+      platform_roles: findMatchingCustomer(d)
+        ? <Badge status="info">Driver + Customer</Badge>
+        : <Badge status="default">Driver</Badge>,
       vehicle_type: d.vehicle_type || '—',
       completeness: docCompleteness(d),
       age_in_queue: ageInQueue(d.submitted_at),
@@ -510,6 +537,7 @@ export const DriverApproval: React.FC = () => {
   const isApproved = selectedDriver.verification_status === 'approved'
   const currentCategory: string = (selectedDriver as any).category || 'standard'
   const hasDriverDocuments = !!selectedDriver.documents?.length
+  const matchedCustomer = findMatchingCustomer(selectedDriver)
 
   return (
     <div className="space-y-6">
@@ -521,6 +549,7 @@ export const DriverApproval: React.FC = () => {
           <div className="mt-2 flex flex-wrap items-center gap-2">
             {selectedDriver.phone_number && <span className="text-slate-600">{selectedDriver.phone_number}</span>}
             <Badge status={selectedDriver.verification_status as any}>{selectedDriver.verification_status.replace(/_/g, ' ')}</Badge>
+            <Badge status={matchedCustomer ? 'info' : 'default'}>{matchedCustomer ? 'Driver + Customer' : 'Driver only'}</Badge>
             <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${selectedDriver.is_online ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
               {selectedDriver.is_online ? '● Online' : '○ Offline'}
             </span>
@@ -608,6 +637,7 @@ export const DriverApproval: React.FC = () => {
                   {[
                     ['Full Name', selectedDriver.full_name || '—'],
                     ['Phone', selectedDriver.phone_number || '—'],
+                    ['Platform Roles', matchedCustomer ? 'Driver and Customer' : 'Driver only'],
                     ['License No.', selectedDriver.license_number],
                     ['License Expiry', selectedDriver.license_expiry ? new Date(selectedDriver.license_expiry).toLocaleDateString() : '—'],
                     ['Joined', new Date(selectedDriver.created_at).toLocaleDateString()],

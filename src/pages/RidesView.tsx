@@ -6,6 +6,7 @@ import { Table } from '../components/Table'
 import { Badge } from '../components/Badge'
 import { Modal } from '../components/Modal'
 import { GoogleMap, Marker, InfoWindow, useLoadScript } from '@react-google-maps/api'
+import { useNavigate, useParams } from 'react-router-dom'
 
 type TabType = 'active_rides' | 'ride_requests' | 'history'
 
@@ -37,6 +38,8 @@ const DEFAULT_CENTER = { lat: -4.4419, lng: 15.2663 } // Kinshasa, DRC
 const MAP_LIBRARIES: ('places' | 'drawing' | 'geometry' | 'visualization')[] = ['places']
 
 export const RidesView: React.FC = () => {
+  const navigate = useNavigate()
+  const { rideId } = useParams<{ rideId: string }>()
   const [activeTab, setActiveTab] = useState<TabType>('active_rides')
   const [rides, setRides] = useState<Ride[]>([])
   const [, setActiveTrips] = useState<import('../services/supabaseService').ActiveTripItem[]>([])
@@ -44,6 +47,7 @@ export const RidesView: React.FC = () => {
   const [history, setHistory] = useState<Ride[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [statusFilter, setStatusFilter] = useState<string>('')
+  const [searchQuery, setSearchQuery] = useState('')
   const [selectedRequest, setSelectedRequest] = useState<ActiveRideRequest | null>(null)
   const [cancelReason, setCancelReason] = useState('')
   const [showCancelModal, setShowCancelModal] = useState(false)
@@ -129,6 +133,8 @@ export const RidesView: React.FC = () => {
 
   // Auto-refresh for active rides and ride requests tabs (30s interval)
   useEffect(() => {
+    if (rideId) return
+
     if (activeTab === 'ride_requests') {
       const interval = setInterval(() => {
         loadRequests(true)
@@ -145,6 +151,8 @@ export const RidesView: React.FC = () => {
   }, [activeTab])
 
   useEffect(() => {
+    if (rideId) return
+
     if (activeTab === 'active_rides') {
       loadActiveTrips()
       loadRides()
@@ -279,32 +287,40 @@ export const RidesView: React.FC = () => {
     }
   }
 
-  const handleRideClick = async (ride: Ride) => {
+  const loadRideDetailById = async (id: string, status?: Ride['status']) => {
     setIsDetailLoading(true)
     setRideOffers(null)
     try {
-      if (ride.status === 'completed' || ride.status === 'cancelled') {
+      if (status === 'completed' || status === 'cancelled') {
         try {
-          const tripData = await supabaseService.getTripDetail(ride.id)
+          const tripData = await supabaseService.getTripDetail(id)
           setSelectedRide(tripData)
         } catch {
-          const rideData = await supabaseService.getRideDetail(ride.id)
+          const rideData = await supabaseService.getRideDetail(id)
           setSelectedRide(rideData)
         }
-      } else {
-        const rideData = await supabaseService.getRideDetail(ride.id)
+      } else if (status) {
+        const rideData = await supabaseService.getRideDetail(id)
         setSelectedRide(rideData)
+      } else {
+        try {
+          const rideData = await supabaseService.getRideDetail(id)
+          setSelectedRide(rideData)
+        } catch {
+          const tripData = await supabaseService.getTripDetail(id)
+          setSelectedRide(tripData)
+        }
       }
     } catch (error) {
       console.error('Failed to load ride detail:', error)
+      setSelectedRide(null)
     } finally {
       setIsDetailLoading(false)
     }
 
-    // Load offer history in parallel
     setIsOfferLoading(true)
     try {
-      const offers = await supabaseService.getRideOffers(ride.id)
+      const offers = await supabaseService.getRideOffers(id)
       setRideOffers(offers)
     } catch (error) {
       console.error('Failed to load ride offers:', error)
@@ -312,6 +328,35 @@ export const RidesView: React.FC = () => {
       setIsOfferLoading(false)
     }
   }
+
+  const handleRideClick = async (ride: Ride) => {
+    navigate(`/rides/${ride.id}`)
+  }
+
+  const normalizeValue = (value: unknown): string => {
+    if (value == null) return ''
+    if (typeof value === 'string' || typeof value === 'number') return String(value).toLowerCase()
+    if (typeof value === 'boolean') return value ? 'true' : 'false'
+    if (Array.isArray(value)) return value.map(normalizeValue).join(' ')
+    if (typeof value === 'object') return Object.values(value as Record<string, unknown>).map(normalizeValue).join(' ')
+    return ''
+  }
+
+  const matchesSearch = (value: unknown) => {
+    const query = searchQuery.trim().toLowerCase()
+    if (!query) return true
+    return normalizeValue(value).includes(query)
+  }
+
+  useEffect(() => {
+    if (!rideId) {
+      setSelectedRide(null)
+      setRideOffers(null)
+      return
+    }
+
+    void loadRideDetailById(rideId)
+  }, [rideId])
 
   const getTimeSince = (createdAt: string): string => {
     const now = new Date()
@@ -357,7 +402,36 @@ export const RidesView: React.FC = () => {
     { key: 'status', label: 'Status' },
   ]
 
-  const rideTableData = rides.map((ride: Ride) => ({
+  const filteredRides = rides.filter((ride) => matchesSearch({
+    id: ride.id,
+    customer_name: ride.customer_name,
+    customer_id: ride.customer_id,
+    driver_name: ride.driver_name,
+    driver_id: ride.driver_id,
+    price: ride.price,
+    status: ride.status,
+    created_at: ride.created_at,
+    category: ride.category,
+    picking_point: ride.picking_point,
+    destination: ride.destination,
+  }))
+
+  const filteredHistory = history.filter((ride) => matchesSearch({
+    id: ride.id,
+    customer_name: ride.customer_name,
+    customer_id: ride.customer_id,
+    driver_name: ride.driver_name,
+    driver_id: ride.driver_id,
+    price: ride.price,
+    status: ride.status,
+    created_at: ride.created_at,
+    category: ride.category,
+    distance_km: ride.distance_km,
+    picking_point: ride.picking_point,
+    destination: ride.destination,
+  }))
+
+  const rideTableData = filteredRides.map((ride: Ride) => ({
     ...ride,
     id: ride.id.slice(0, 8),
     customer_name: ride.customer_name || ride.customer_id?.slice(0, 8) || '-',
@@ -367,7 +441,7 @@ export const RidesView: React.FC = () => {
     created_at: ride.created_at ? new Date(ride.created_at).toLocaleDateString() : '-',
   }))
 
-  const historyTableData = history.map((ride: Ride) => ({
+  const historyTableData = filteredHistory.map((ride: Ride) => ({
     ...ride,
     id: ride.id.slice(0, 8),
     customer_name: ride.customer_name || ride.customer_id?.slice(0, 8) || '-',
@@ -385,7 +459,38 @@ export const RidesView: React.FC = () => {
     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   })
 
-  const requestTableData = sortedRequests.map((req) => ({
+  const filteredRequests = sortedRequests.filter((req) => matchesSearch({
+    id: req.id,
+    customer_name: req.customer_name,
+    customer_phone: req.customer_phone,
+    customer_id: req.customer_id,
+    category: req.category,
+    price: req.price,
+    status: req.status,
+    bid_count: req.bid_count,
+    created_at: req.created_at,
+    is_stale: req.is_stale,
+    picking_point: req.picking_point,
+    destination: req.destination,
+  }))
+
+  const filteredMarketplaceRequests = marketplaceRequests.filter((req) => matchesSearch({
+    id: req.id,
+    customer_name: req.customer_name,
+    customer_phone: req.customer_phone,
+    customer_id: req.customer_id,
+    category: req.category,
+    price: req.suggested_price,
+    status: req.status,
+    bid_count: req.bid_count,
+    created_at: req.created_at,
+    is_stale: req.is_stale,
+    picking_point: req.picking_point,
+    destination: req.destination,
+    bids: req.bids,
+  }))
+
+  const requestTableData = filteredRequests.map((req) => ({
     ...req,
     id: req.id.slice(0, 8),
     price: req.price != null ? `${req.price.toLocaleString()} CDF` : '-',
@@ -396,6 +501,7 @@ export const RidesView: React.FC = () => {
   }))
 
   const staleCount = requests.filter((r) => r.is_stale).length
+  const visibleStaleCount = filteredRequests.filter((r) => r.is_stale).length
 
   const formatDuration = (minutes?: number) => {
     if (!minutes) return '-'
@@ -410,6 +516,331 @@ export const RidesView: React.FC = () => {
 
   const isRideDetailResponse = (r: any): r is RideDetailResponse => {
     return 'vehicle_snapshot' in r || 'arrived_at' in r
+  }
+
+  const renderRideDetailPanel = () => {
+    if (isDetailLoading) {
+      return (
+        <div className="flex items-center justify-center py-12">
+          <div className="h-10 w-10 animate-spin rounded-full border-4 border-brand-200 border-t-brand-600" />
+        </div>
+      )
+    }
+
+    if (!selectedRide) {
+      return (
+        <div className="flex flex-col items-center justify-center py-12 text-brand-400">
+          <svg className="mb-3 h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <p className="text-lg font-medium">Select a ride to view details</p>
+          <p className="mt-1 text-sm">Click on any ride row to open its detail page</p>
+        </div>
+      )
+    }
+
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h3 className="text-lg font-semibold text-brand-900">
+            Ride Detail
+          </h3>
+          <Badge status={statusColors[selectedRide.status] || 'default'}>
+            {statusLabels[selectedRide.status] || selectedRide.status}
+          </Badge>
+        </div>
+
+        <div className="rounded-xl border border-brand-100 bg-brand-50/50 p-4">
+          <h4 className="mb-3 text-sm font-medium text-brand-700">Timeline</h4>
+          <div className="space-y-3 text-sm">
+            {selectedRide.created_at && (
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+                <div className="h-2 w-2 rounded-full bg-brand-400" />
+                <span className="text-brand-500">Requested</span>
+                <span className="font-medium text-brand-900 sm:ml-auto">{new Date(selectedRide.created_at).toLocaleString()}</span>
+              </div>
+            )}
+            {isRideDetailResponse(selectedRide) && selectedRide.arrived_at && (
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+                <div className="h-2 w-2 rounded-full bg-amber-400" />
+                <span className="text-brand-500">Arrived</span>
+                <span className="font-medium text-brand-900 sm:ml-auto">{new Date(selectedRide.arrived_at).toLocaleString()}</span>
+              </div>
+            )}
+            {selectedRide.started_at && (
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+                <div className="h-2 w-2 rounded-full bg-green-400" />
+                <span className="text-brand-500">Started</span>
+                <span className="font-medium text-brand-900 sm:ml-auto">{new Date(selectedRide.started_at).toLocaleString()}</span>
+              </div>
+            )}
+            {selectedRide.completed_at && (
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+                <div className="h-2 w-2 rounded-full bg-green-500" />
+                <span className="text-brand-500">Completed</span>
+                <span className="font-medium text-brand-900 sm:ml-auto">{new Date(selectedRide.completed_at).toLocaleString()}</span>
+              </div>
+            )}
+            {isRideDetailResponse(selectedRide) && selectedRide.cancelled_at && (
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+                <div className="h-2 w-2 rounded-full bg-red-400" />
+                <span className="text-brand-500">Cancelled</span>
+                <span className="font-medium text-brand-900 sm:ml-auto">{new Date(selectedRide.cancelled_at).toLocaleString()}</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="rounded-xl border border-brand-100 p-3">
+            <h4 className="mb-2 text-sm font-medium text-brand-700">Customer</h4>
+            <div className="space-y-1 text-sm">
+              <p className="font-medium text-brand-900">{selectedRide.customer_name || 'N/A'}</p>
+              {'customer_phone' in selectedRide && selectedRide.customer_phone && (
+                <p className="text-brand-500">{selectedRide.customer_phone}</p>
+              )}
+              <p className="text-xs text-brand-400">ID: {selectedRide.customer_id?.slice(0, 8)}</p>
+            </div>
+          </div>
+          <div className="rounded-xl border border-brand-100 p-3">
+            <h4 className="mb-2 text-sm font-medium text-brand-700">Driver</h4>
+            <div className="space-y-1 text-sm">
+              <p className="font-medium text-brand-900">{selectedRide.driver_name || 'N/A'}</p>
+              {'driver_phone' in selectedRide && selectedRide.driver_phone && (
+                <p className="text-brand-500">{selectedRide.driver_phone}</p>
+              )}
+              <p className="text-xs text-brand-400">ID: {selectedRide.driver_id?.slice(0, 8)}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-brand-100 p-3">
+          <h4 className="mb-2 text-sm font-medium text-brand-700">Route</h4>
+          <div className="space-y-2 text-sm text-brand-600">
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-green-400" />
+              <span className="font-medium">From:</span>{' '}
+              {selectedRide.picking_point?.name || 'N/A'}
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-red-400" />
+              <span className="font-medium">To:</span>{' '}
+              {selectedRide.destination?.name || 'N/A'}
+            </div>
+            {isRideDetailResponse(selectedRide) && selectedRide.stops && selectedRide.stops.length > 0 && (
+              <div className="ml-4 space-y-1">
+                <span className="font-medium">Stops:</span>
+                <ul className="ml-4 list-disc text-brand-400">
+                  {selectedRide.stops.map((stop: any, i: number) => (
+                    <li key={i}>{stop.name}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-brand-100 p-3">
+          <h4 className="mb-2 text-sm font-medium text-brand-700">Pricing</h4>
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-brand-500">Fare</span>
+              <span className="font-medium text-brand-900">
+                {selectedRide.price != null ? `${selectedRide.price.toLocaleString()} CDF` : '-'}
+              </span>
+            </div>
+            {'platform_commission_amount' in selectedRide && selectedRide.platform_commission_amount != null && (
+              <div className="flex justify-between">
+                <span className="text-brand-500">Platform Commission</span>
+                <span className="font-medium text-red-600">-{selectedRide.platform_commission_amount.toLocaleString()} CDF</span>
+              </div>
+            )}
+            {selectedRide.distance_km != null && (
+              <div className="flex justify-between text-brand-400">
+                <span>Distance</span>
+                <span>{selectedRide.distance_km.toFixed(1)} km</span>
+              </div>
+            )}
+            {selectedRide.duration_minutes != null && (
+              <div className="flex justify-between text-brand-400">
+                <span>Duration</span>
+                <span>{formatDuration(selectedRide.duration_minutes)}</span>
+              </div>
+            )}
+            {selectedRide.category && (
+              <div className="flex justify-between text-brand-400">
+                <span>Category</span>
+                <span className="capitalize font-medium">{selectedRide.category}</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {isTripResponse(selectedRide) && (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border border-brand-100 p-3">
+              <h4 className="mb-1 text-sm font-medium text-brand-700">Customer Rating</h4>
+              <p className="text-lg font-bold text-amber-500">
+                {selectedRide.customer_rating != null
+                  ? `${'★'.repeat(Math.round(selectedRide.customer_rating))}${'☆'.repeat(5 - Math.round(selectedRide.customer_rating))}`
+                  : 'N/A'}
+              </p>
+            </div>
+            <div className="rounded-xl border border-brand-100 p-3">
+              <h4 className="mb-1 text-sm font-medium text-brand-700">Driver Rating</h4>
+              <p className="text-lg font-bold text-amber-500">
+                {selectedRide.driver_rating != null
+                  ? `${'★'.repeat(Math.round(selectedRide.driver_rating))}${'☆'.repeat(5 - Math.round(selectedRide.driver_rating))}`
+                  : 'N/A'}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {isRideDetailResponse(selectedRide) && selectedRide.vehicle_snapshot && (
+          <div className="rounded-xl border border-brand-100 p-3">
+            <h4 className="mb-2 text-sm font-medium text-brand-700">Vehicle</h4>
+            <div className="space-y-1 text-sm text-brand-600">
+              <p className="font-medium text-brand-900">{(selectedRide.vehicle_snapshot.make as string) || ''} {(selectedRide.vehicle_snapshot.model as string) || ''}</p>
+              <p>{(selectedRide.vehicle_snapshot.vehicle_type as string) || ''} · {(selectedRide.vehicle_snapshot.color as string) || ''}</p>
+              <p className="font-mono text-xs text-brand-400">{(selectedRide.vehicle_snapshot.license_plate as string) || ''}</p>
+            </div>
+          </div>
+        )}
+
+        {isRideDetailResponse(selectedRide) && selectedRide.cancellation_reason && (
+          <div className="rounded-xl border border-red-200 bg-red-50 p-3">
+            <h4 className="mb-1 text-sm font-medium text-red-700">Cancellation Reason</h4>
+            <p className="text-sm text-red-600">{selectedRide.cancellation_reason}</p>
+            {selectedRide.cancelled_by && (
+              <p className="mt-1 text-xs text-red-500">Cancelled by: {selectedRide.cancelled_by}</p>
+            )}
+          </div>
+        )}
+
+        {isRideDetailResponse(selectedRide) && selectedRide.reason_code && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+            <h4 className="mb-1 text-sm font-medium text-amber-700">Reason Code</h4>
+            <p className="text-sm text-amber-600">
+              {selectedRide.reason_code}{selectedRide.reason_text ? `: ${selectedRide.reason_text}` : ''}
+            </p>
+          </div>
+        )}
+
+        <div className="rounded-xl border border-brand-100 p-3">
+          <div className="mb-3 flex items-center justify-between">
+            <h4 className="text-sm font-medium text-brand-700">Offer History</h4>
+            {isOfferLoading ? (
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-brand-200 border-t-brand-600" />
+            ) : rideOffers ? (
+              <Badge status={rideOffers.update_count > 0 ? 'warning' : 'default'}>
+                {rideOffers.update_count} update{rideOffers.update_count !== 1 ? 's' : ''}
+              </Badge>
+            ) : null}
+          </div>
+
+          {isOfferLoading ? (
+            <div className="flex items-center justify-center py-4">
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-brand-200 border-t-brand-600" />
+            </div>
+          ) : rideOffers && rideOffers.offers.length > 0 ? (
+            <div className="space-y-2">
+              <div className="rounded-lg border border-green-100 bg-green-50 p-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-medium text-green-700">Original Offer</span>
+                  <span className="font-mono font-bold text-green-800">{rideOffers.original_price?.toLocaleString()} CDF</span>
+                </div>
+                <p className="mt-0.5 text-xs text-green-600">{rideOffers.offers[0]?.driver_name || 'Unknown driver'}</p>
+              </div>
+
+              {rideOffers.offers.slice(1).map((offer, idx) => (
+                <div key={offer.id} className="rounded-lg border border-amber-100 bg-amber-50 p-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-medium text-amber-700">Update #{idx + 1}</span>
+                    <span className="font-mono font-bold text-amber-800">{(offer.price ?? 0).toLocaleString()} CDF</span>
+                  </div>
+                  <div className="mt-0.5 flex items-center justify-between text-xs text-amber-600">
+                    <span>{offer.driver_name || 'Unknown driver'}</span>
+                    <span>{new Date(offer.created_at).toLocaleString()}</span>
+                  </div>
+                </div>
+              ))}
+
+              {rideOffers.final_price != null && (
+                <div className="rounded-lg border border-brand-100 bg-brand-50 p-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-medium text-brand-700">Final Accepted Price</span>
+                    <span className="font-mono font-bold text-brand-800">{rideOffers.final_price.toLocaleString()} CDF</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : rideOffers ? (
+            <p className="text-xs text-brand-400">No offer data available for this ride.</p>
+          ) : (
+            <p className="text-xs text-brand-400">Offer history unavailable.</p>
+          )}
+        </div>
+
+        {selectedRide.status !== 'completed' && selectedRide.status !== 'cancelled' && (
+          <div className="rounded-xl border border-red-200 bg-red-50 p-3">
+            <h4 className="mb-3 text-sm font-semibold text-red-700">Live Trip Intervention</h4>
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+              <Button
+                variant="danger"
+                size="sm"
+                className="w-full sm:w-auto"
+                onClick={() => {
+                  setForceEndReason('')
+                  setForceEndRole('operations_manager')
+                  setShowForceEndModal(true)
+                }}
+              >
+                ⚠ Force End Trip
+              </Button>
+              <Button
+                variant="warning"
+                size="sm"
+                className="w-full sm:w-auto"
+                onClick={() => {
+                  setPushTarget('customer')
+                  setPushTitle('')
+                  setPushMessage('')
+                  setShowSendPushModal(true)
+                }}
+              >
+                📨 Send Push
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  if (rideId) {
+    return (
+      <div className="space-y-6">
+        <button
+          type="button"
+          onClick={() => navigate('/rides')}
+          className="text-sm font-semibold text-blue-600 hover:text-blue-700"
+        >
+          ← Back to rides
+        </button>
+
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-brand-900">Ride Detail</h1>
+            <p className="mt-1 text-sm text-brand-500">Full ride detail for {rideId}</p>
+          </div>
+        </div>
+
+        <Card className="border-l-4 border-l-brand-500">
+          {renderRideDetailPanel()}
+        </Card>
+      </div>
+    )
   }
 
   return (
@@ -437,6 +868,24 @@ export const RidesView: React.FC = () => {
         </Button>
       </div>
 
+      <Card className="min-w-0">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-brand-500">Search rides</h2>
+            <p className="mt-1 text-sm text-brand-400">Filter rides, history, or requests by rider, driver, route, status, phone, or ID.</p>
+          </div>
+          <div className="w-full lg:max-w-md">
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by ID, customer, driver, phone, route..."
+              className="w-full rounded-2xl border border-brand-200 bg-white px-4 py-3 text-sm text-brand-900 shadow-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+            />
+          </div>
+        </div>
+      </Card>
+
       {/* Tabs */}
       <div className="-mx-1 overflow-x-auto border-b border-brand-100 px-1 pb-2">
         <div className="flex min-w-max gap-2 sm:min-w-0 sm:flex-wrap">
@@ -446,6 +895,7 @@ export const RidesView: React.FC = () => {
               variant={activeTab === tab ? 'primary' : 'secondary'}
               className="shrink-0"
               onClick={() => {
+                navigate('/rides')
                 setActiveTab(tab)
                 setSelectedRide(null)
                 setSelectedRequest(null)
@@ -463,9 +913,9 @@ export const RidesView: React.FC = () => {
 
       {/* Active Rides / History Tab */}
       {(activeTab === 'active_rides' || activeTab === 'history') && (
-        <div className="grid gap-6 lg:grid-cols-[1fr_1.2fr]">
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
           {/* List */}
-          <Card>
+          <Card className="min-w-0">
             {activeTab === 'active_rides' && (
               <div className="mb-4 flex flex-wrap gap-2">
                 <Button
@@ -492,7 +942,7 @@ export const RidesView: React.FC = () => {
               data={activeTab === 'history' ? historyTableData : rideTableData}
               isLoading={isLoading}
               onRowClick={(row: any) => {
-                const fullRide = (activeTab === 'history' ? history : rides).find(
+                const fullRide = (activeTab === 'history' ? filteredHistory : filteredRides).find(
                   (r) => r.id.startsWith(row.id)
                 )
                 if (fullRide) handleRideClick(fullRide)
@@ -501,338 +951,23 @@ export const RidesView: React.FC = () => {
           </Card>
 
           {/* Detail Panel */}
-          <Card className="border-l-4 border-l-brand-500">
-            {isDetailLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="h-10 w-10 animate-spin rounded-full border-4 border-brand-200 border-t-brand-600" />
-              </div>
-            ) : selectedRide ? (
-              <div className="space-y-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <h3 className="text-lg font-semibold text-brand-900">
-                    Ride Detail
-                  </h3>
-                  <Badge status={statusColors[selectedRide.status] || 'default'}>
-                    {statusLabels[selectedRide.status] || selectedRide.status}
-                  </Badge>
-                </div>
-
-                {/* Timeline */}
-                <div className="rounded-xl border border-brand-100 bg-brand-50/50 p-4">
-                  <h4 className="mb-3 text-sm font-medium text-brand-700">Timeline</h4>
-                  <div className="space-y-3 text-sm">
-                    {selectedRide.created_at && (
-                      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
-                        <div className="h-2 w-2 rounded-full bg-brand-400" />
-                        <span className="text-brand-500">Requested</span>
-                        <span className="font-medium text-brand-900 sm:ml-auto">{new Date(selectedRide.created_at).toLocaleString()}</span>
-                      </div>
-                    )}
-                    {isRideDetailResponse(selectedRide) && selectedRide.arrived_at && (
-                      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
-                        <div className="h-2 w-2 rounded-full bg-amber-400" />
-                        <span className="text-brand-500">Arrived</span>
-                        <span className="font-medium text-brand-900 sm:ml-auto">{new Date(selectedRide.arrived_at).toLocaleString()}</span>
-                      </div>
-                    )}
-                    {selectedRide.started_at && (
-                      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
-                        <div className="h-2 w-2 rounded-full bg-green-400" />
-                        <span className="text-brand-500">Started</span>
-                        <span className="font-medium text-brand-900 sm:ml-auto">{new Date(selectedRide.started_at).toLocaleString()}</span>
-                      </div>
-                    )}
-                    {selectedRide.completed_at && (
-                      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
-                        <div className="h-2 w-2 rounded-full bg-green-500" />
-                        <span className="text-brand-500">Completed</span>
-                        <span className="font-medium text-brand-900 sm:ml-auto">{new Date(selectedRide.completed_at).toLocaleString()}</span>
-                      </div>
-                    )}
-                    {isRideDetailResponse(selectedRide) && selectedRide.cancelled_at && (
-                      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
-                        <div className="h-2 w-2 rounded-full bg-red-400" />
-                        <span className="text-brand-500">Cancelled</span>
-                        <span className="font-medium text-brand-900 sm:ml-auto">{new Date(selectedRide.cancelled_at).toLocaleString()}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Customer & Driver Info */}
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div className="rounded-xl border border-brand-100 p-3">
-                    <h4 className="mb-2 text-sm font-medium text-brand-700">Customer</h4>
-                    <div className="space-y-1 text-sm">
-                      <p className="font-medium text-brand-900">
-                        {selectedRide.customer_name || 'N/A'}
-                      </p>
-                      {'customer_phone' in selectedRide && selectedRide.customer_phone && (
-                        <p className="text-brand-500">{selectedRide.customer_phone}</p>
-                      )}
-                      <p className="text-xs text-brand-400">ID: {selectedRide.customer_id?.slice(0, 8)}</p>
-                    </div>
-                  </div>
-                  <div className="rounded-xl border border-brand-100 p-3">
-                    <h4 className="mb-2 text-sm font-medium text-brand-700">Driver</h4>
-                    <div className="space-y-1 text-sm">
-                      <p className="font-medium text-brand-900">
-                        {selectedRide.driver_name || 'N/A'}
-                      </p>
-                      {'driver_phone' in selectedRide && selectedRide.driver_phone && (
-                        <p className="text-brand-500">{selectedRide.driver_phone}</p>
-                      )}
-                      <p className="text-xs text-brand-400">ID: {selectedRide.driver_id?.slice(0, 8)}</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Route */}
-                <div className="rounded-xl border border-brand-100 p-3">
-                  <h4 className="mb-2 text-sm font-medium text-brand-700">Route</h4>
-                  <div className="space-y-2 text-sm text-brand-600">
-                    <div className="flex items-center gap-2">
-                      <span className="h-2 w-2 rounded-full bg-green-400" />
-                      <span className="font-medium">From:</span>{' '}
-                      {selectedRide.picking_point?.name || 'N/A'}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="h-2 w-2 rounded-full bg-red-400" />
-                      <span className="font-medium">To:</span>{' '}
-                      {selectedRide.destination?.name || 'N/A'}
-                    </div>
-                    {isRideDetailResponse(selectedRide) && selectedRide.stops && selectedRide.stops.length > 0 && (
-                      <div className="ml-4 space-y-1">
-                        <span className="font-medium">Stops:</span>
-                        <ul className="ml-4 list-disc text-brand-400">
-                          {selectedRide.stops.map((stop: any, i: number) => (
-                            <li key={i}>{stop.name}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Pricing Breakdown */}
-                <div className="rounded-xl border border-brand-100 p-3">
-                  <h4 className="mb-2 text-sm font-medium text-brand-700">Pricing</h4>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-brand-500">Fare</span>
-                      <span className="font-medium text-brand-900">
-                        {selectedRide.price != null ? `${selectedRide.price.toLocaleString()} CDF` : '-'}
-                      </span>
-                    </div>
-                    {'platform_commission_amount' in selectedRide && selectedRide.platform_commission_amount != null && (
-                      <div className="flex justify-between">
-                        <span className="text-brand-500">Platform Commission</span>
-                        <span className="font-medium text-red-600">
-                          -{selectedRide.platform_commission_amount.toLocaleString()} CDF
-                        </span>
-                      </div>
-                    )}
-                    {selectedRide.distance_km != null && (
-                      <div className="flex justify-between text-brand-400">
-                        <span>Distance</span>
-                        <span>{selectedRide.distance_km.toFixed(1)} km</span>
-                      </div>
-                    )}
-                    {selectedRide.duration_minutes != null && (
-                      <div className="flex justify-between text-brand-400">
-                        <span>Duration</span>
-                        <span>{formatDuration(selectedRide.duration_minutes)}</span>
-                      </div>
-                    )}
-                    {selectedRide.category && (
-                      <div className="flex justify-between text-brand-400">
-                        <span>Category</span>
-                        <span className="capitalize font-medium">{selectedRide.category}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Ratings (for trips) */}
-                {isTripResponse(selectedRide) && (
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div className="rounded-xl border border-brand-100 p-3">
-                      <h4 className="mb-1 text-sm font-medium text-brand-700">Customer Rating</h4>
-                      <p className="text-lg font-bold text-amber-500">
-                        {selectedRide.customer_rating != null
-                          ? `${'★'.repeat(Math.round(selectedRide.customer_rating))}${'☆'.repeat(5 - Math.round(selectedRide.customer_rating))}`
-                          : 'N/A'}
-                      </p>
-                    </div>
-                    <div className="rounded-xl border border-brand-100 p-3">
-                      <h4 className="mb-1 text-sm font-medium text-brand-700">Driver Rating</h4>
-                      <p className="text-lg font-bold text-amber-500">
-                        {selectedRide.driver_rating != null
-                          ? `${'★'.repeat(Math.round(selectedRide.driver_rating))}${'☆'.repeat(5 - Math.round(selectedRide.driver_rating))}`
-                          : 'N/A'}
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Vehicle Snapshot */}
-                {isRideDetailResponse(selectedRide) && selectedRide.vehicle_snapshot && (
-                  <div className="rounded-xl border border-brand-100 p-3">
-                    <h4 className="mb-2 text-sm font-medium text-brand-700">Vehicle</h4>
-                    <div className="space-y-1 text-sm text-brand-600">
-                      <p className="font-medium text-brand-900">{(selectedRide.vehicle_snapshot.make as string) || ''} {(selectedRide.vehicle_snapshot.model as string) || ''}</p>
-                      <p>{(selectedRide.vehicle_snapshot.vehicle_type as string) || ''} · {(selectedRide.vehicle_snapshot.color as string) || ''}</p>
-                      <p className="font-mono text-xs text-brand-400">{(selectedRide.vehicle_snapshot.license_plate as string) || ''}</p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Cancellation Info */}
-                {isRideDetailResponse(selectedRide) && selectedRide.cancellation_reason && (
-                  <div className="rounded-xl border border-red-200 bg-red-50 p-3">
-                    <h4 className="mb-1 text-sm font-medium text-red-700">Cancellation Reason</h4>
-                    <p className="text-sm text-red-600">{selectedRide.cancellation_reason}</p>
-                    {selectedRide.cancelled_by && (
-                      <p className="mt-1 text-xs text-red-500">Cancelled by: {selectedRide.cancelled_by}</p>
-                    )}
-                  </div>
-                )}
-
-                {/* Reason code/text for cancelled rides */}
-                {isRideDetailResponse(selectedRide) && selectedRide.reason_code && (
-                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
-                    <h4 className="mb-1 text-sm font-medium text-amber-700">Reason Code</h4>
-                    <p className="text-sm text-amber-600">
-                      {selectedRide.reason_code}{selectedRide.reason_text ? `: ${selectedRide.reason_text}` : ''}
-                    </p>
-                  </div>
-                )}
-
-                {/* Offer History — shows which drivers updated their offers */}
-                <div className="rounded-xl border border-brand-100 p-3">
-                  <div className="mb-3 flex items-center justify-between">
-                    <h4 className="text-sm font-medium text-brand-700">Offer History</h4>
-                    {isOfferLoading ? (
-                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-brand-200 border-t-brand-600" />
-                    ) : rideOffers ? (
-                      <Badge status={rideOffers.update_count > 0 ? 'warning' : 'default'}>
-                        {rideOffers.update_count} update{rideOffers.update_count !== 1 ? 's' : ''}
-                      </Badge>
-                    ) : null}
-                  </div>
-
-                  {isOfferLoading ? (
-                    <div className="flex items-center justify-center py-4">
-                      <div className="h-6 w-6 animate-spin rounded-full border-2 border-brand-200 border-t-brand-600" />
-                    </div>
-                  ) : rideOffers && rideOffers.offers.length > 0 ? (
-                    <div className="space-y-2">
-                      {/* Original offer */}
-                      <div className="rounded-lg border border-green-100 bg-green-50 p-2">
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="font-medium text-green-700">Original Offer</span>
-                          <span className="font-mono font-bold text-green-800">
-                            {rideOffers.original_price?.toLocaleString()} CDF
-                          </span>
-                        </div>
-                        <p className="mt-0.5 text-xs text-green-600">
-                          {rideOffers.offers[0]?.driver_name || 'Unknown driver'}
-                        </p>
-                      </div>
-
-                      {/* Updates (if any) */}
-                      {rideOffers.offers.slice(1).map((offer, idx) => (
-                        <div key={offer.id} className="rounded-lg border border-amber-100 bg-amber-50 p-2">
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="font-medium text-amber-700">Update #{idx + 1}</span>
-                            <span className="font-mono font-bold text-amber-800">
-                              {(offer.price ?? 0).toLocaleString()} CDF
-                            </span>
-                          </div>
-                          <div className="mt-0.5 flex items-center justify-between text-xs text-amber-600">
-                            <span>{offer.driver_name || 'Unknown driver'}</span>
-                            <span>{new Date(offer.created_at).toLocaleString()}</span>
-                          </div>
-                        </div>
-                      ))}
-
-                      {/* Final price */}
-                      {rideOffers.final_price != null && (
-                        <div className="rounded-lg border border-brand-100 bg-brand-50 p-2">
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="font-medium text-brand-700">Final Accepted Price</span>
-                            <span className="font-mono font-bold text-brand-800">
-                              {rideOffers.final_price.toLocaleString()} CDF
-                            </span>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ) : rideOffers ? (
-                    <p className="text-xs text-brand-400">No offer data available for this ride.</p>
-                  ) : (
-                    <p className="text-xs text-brand-400">Click a ride to load offer history.</p>
-                  )}
-                </div>
-
-                {/* Live Trip Intervention — only for active/in-progress rides */}
-                {selectedRide.status !== 'completed' && selectedRide.status !== 'cancelled' && (
-                  <div className="rounded-xl border border-red-200 bg-red-50 p-3">
-                    <h4 className="mb-3 text-sm font-semibold text-red-700">Live Trip Intervention</h4>
-                    <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-                      <Button
-                        variant="danger"
-                        size="sm"
-                        className="w-full sm:w-auto"
-                        onClick={() => {
-                          setForceEndReason('')
-                          setForceEndRole('operations_manager')
-                          setShowForceEndModal(true)
-                        }}
-                      >
-                        ⚠ Force End Trip
-                      </Button>
-                      <Button
-                        variant="warning"
-                        size="sm"
-                        className="w-full sm:w-auto"
-                        onClick={() => {
-                          setPushTarget('customer')
-                          setPushTitle('')
-                          setPushMessage('')
-                          setShowSendPushModal(true)
-                        }}
-                      >
-                        📨 Send Push
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-12 text-brand-400">
-                <svg className="mb-3 h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <p className="text-lg font-medium">Select a ride to view details</p>
-                <p className="mt-1 text-sm">Click on any ride row to see its full information</p>
-              </div>
-            )}
+          <Card className="min-w-0 border-l-4 border-l-brand-500">
+            {renderRideDetailPanel()}
           </Card>
         </div>
       )}
 
       {/* Ride Requests Tab — Marketplace View */}
       {activeTab === 'ride_requests' && (
-        <div className="grid gap-6 lg:grid-cols-[1.5fr_1fr]">
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,1fr)]">
           {/* Left column: Marketplace Map + Request List */}
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             {/* Marketplace Map — all requests as color-coded markers */}
-            <Card>
+            <Card className="min-w-0">
               <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm font-medium text-brand-700">
-                    Marketplace · {marketplaceRequests.length} Active
+                    Marketplace · {filteredMarketplaceRequests.length} Active
                   </h3>
                   {isMarketplaceLoading && (
                     <svg className="h-3.5 w-3.5 animate-spin text-brand-400" viewBox="0 0 24 24" fill="none">
@@ -879,7 +1014,7 @@ export const RidesView: React.FC = () => {
                         ],
                       }}
                     >
-                      {marketplaceRequests.map((req) => {
+                      {filteredMarketplaceRequests.map((req) => {
                         if (!req.picking_point?.latitude || !req.picking_point?.longitude) return null
                         const hasBids = req.bid_count > 0
                         const isStale = req.is_stale
@@ -970,11 +1105,11 @@ export const RidesView: React.FC = () => {
             </Card>
 
             {/* Request List Table */}
-            <Card>
+            <Card className="min-w-0">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm font-medium text-brand-700">
-                    {requests.length} Request{requests.length !== 1 ? 's' : ''}
+                    {filteredRequests.length} Request{filteredRequests.length !== 1 ? 's' : ''}
                   </h3>
                   {lastUpdated && (
                     <span className="text-xs text-brand-400">
@@ -982,22 +1117,22 @@ export const RidesView: React.FC = () => {
                     </span>
                   )}
                 </div>
-                {staleCount > 0 && (
+                {visibleStaleCount > 0 && (
                   <Button
                     variant="danger"
                     size="sm"
                     className="w-full sm:w-auto"
                     onClick={() => setShowBatchCancelModal(true)}
                   >
-                    ✕ Cancel {staleCount} Stale
+                    ✕ Cancel {visibleStaleCount} Stale
                   </Button>
                 )}
               </div>
 
-              {staleCount > 0 && (
+              {visibleStaleCount > 0 && (
                 <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2">
                   <p className="text-xs font-medium text-red-700">
-                    ⚠ {staleCount} stale request{staleCount !== 1 ? 's' : ''} — no driver has placed a bid. Consider cancelling to free up capacity.
+                    ⚠ {visibleStaleCount} stale request{visibleStaleCount !== 1 ? 's' : ''} in the current results — no driver has placed a bid. Consider cancelling to free up capacity.
                   </p>
                 </div>
               )}
@@ -1007,11 +1142,11 @@ export const RidesView: React.FC = () => {
                 data={requestTableData}
                 isLoading={isLoading}
                 onRowClick={(row: any) => {
-                  const fullReq = requests.find((r) => r.id.startsWith(row.id))
+                  const fullReq = filteredRequests.find((r) => r.id.startsWith(row.id))
                   if (fullReq) {
                     setSelectedRequest(fullReq)
                     // Also sync marketplace selection
-                    const mktReq = marketplaceRequests.find((r) => r.id.startsWith(row.id))
+                    const mktReq = filteredMarketplaceRequests.find((r) => r.id.startsWith(row.id))
                     if (mktReq) setSelectedMarketplaceRequest(mktReq)
                   }
                 }}
@@ -1023,11 +1158,11 @@ export const RidesView: React.FC = () => {
           </div>
 
           {/* Right column: Request Detail + Bid Stream */}
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             {selectedRequest ? (
               <>
                 {/* Request Detail Card */}
-                <Card className="border-l-4 border-l-brand-500">
+                <Card className="min-w-0 border-l-4 border-l-brand-500">
                   <div className="space-y-4">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <h3 className="text-lg font-semibold text-brand-900">
@@ -1087,7 +1222,7 @@ export const RidesView: React.FC = () => {
                 </Card>
 
                 {/* Bid Stream Panel */}
-                <Card className="border-l-4 border-l-accent-500">
+                <Card className="min-w-0 border-l-4 border-l-accent-500">
                   <div className="space-y-3">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                       <h3 className="text-sm font-medium text-brand-700">

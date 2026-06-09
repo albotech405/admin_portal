@@ -612,6 +612,7 @@ class AlboTaxService {
   private api: AxiosInstance
   private backendUrl: string
   private jwtToken: string
+  private liveLocationAdminFallbackUntil = 0
 
   constructor(backendUrl: string, jwtToken: string) {
     this.backendUrl = backendUrl.replace(/\/$/, '')
@@ -2318,36 +2319,44 @@ class AlboTaxService {
   }
 
   async getLiveLocationSessions(filters: LiveLocationSessionFilters = {}): Promise<LiveLocationSession[]> {
-    try {
-      const params: Record<string, string> = {}
-      if (filters.status && filters.status !== 'all_live') params.status = filters.status
-      if (filters.type && filters.type !== 'all') params.type = filters.type
-      if (filters.search) params.search = filters.search
+    if (!this.shouldBypassLiveLocationAdminEndpoints()) {
+      try {
+        const params: Record<string, string> = {}
+        if (filters.status && filters.status !== 'all_live') params.status = filters.status
+        if (filters.type && filters.type !== 'all') params.type = filters.type
+        if (filters.search) params.search = filters.search
 
-      const response = await this.api.get('/live-location/admin/sessions', { params })
-      const data = Array.isArray(response.data) ? response.data : response.data.sessions || []
-      return this.filterLiveLocationSessions(data.map((item: unknown) => this.normalizeLiveLocationSession(item)), filters)
-    } catch {
-      return this.getFallbackLiveLocationSessions(filters)
+        const response = await this.api.get('/live-location/admin/sessions', { params })
+        const data = Array.isArray(response.data) ? response.data : response.data.sessions || []
+        return this.filterLiveLocationSessions(data.map((item: unknown) => this.normalizeLiveLocationSession(item)), filters)
+      } catch (error) {
+        this.markLiveLocationAdminUnavailable(error)
+      }
     }
+
+    return this.getFallbackLiveLocationSessions(filters)
   }
 
   async getRecentLiveLocationSessions(filters: LiveLocationSessionFilters = {}): Promise<LiveLocationSession[]> {
-    try {
-      const params: Record<string, string> = {}
-      if (filters.search) params.search = filters.search
-      if (filters.type && filters.type !== 'all') params.type = filters.type
+    if (!this.shouldBypassLiveLocationAdminEndpoints()) {
+      try {
+        const params: Record<string, string> = {}
+        if (filters.search) params.search = filters.search
+        if (filters.type && filters.type !== 'all') params.type = filters.type
 
-      const response = await this.api.get('/live-location/admin/sessions/history', { params })
-      const data = Array.isArray(response.data) ? response.data : response.data.sessions || []
-      return this.filterLiveLocationSessions(data.map((item: unknown) => this.normalizeLiveLocationSession(item)), {
-        ...filters,
-        includeHistory: true,
-      })
-    } catch {
-      const sessions = await this.getFallbackLiveLocationSessions({ ...filters, includeHistory: true })
-      return sessions.filter((session) => session.status !== 'active' && session.status !== 'stale')
+        const response = await this.api.get('/live-location/admin/sessions/history', { params })
+        const data = Array.isArray(response.data) ? response.data : response.data.sessions || []
+        return this.filterLiveLocationSessions(data.map((item: unknown) => this.normalizeLiveLocationSession(item)), {
+          ...filters,
+          includeHistory: true,
+        })
+      } catch (error) {
+        this.markLiveLocationAdminUnavailable(error)
+      }
     }
+
+    const sessions = await this.getFallbackLiveLocationSessions({ ...filters, includeHistory: true })
+    return sessions.filter((session) => session.status !== 'active' && session.status !== 'stale')
   }
 
   async getLiveLocationSession(locator: {
@@ -2355,21 +2364,23 @@ class AlboTaxService {
     rideId?: string
     sosSessionId?: string
   }): Promise<LiveLocationSession | null> {
-    try {
-      if (locator.sessionId) {
-        const response = await this.api.get(`/live-location/admin/sessions/${locator.sessionId}`)
-        return this.normalizeLiveLocationSession(response.data)
+    if (!this.shouldBypassLiveLocationAdminEndpoints()) {
+      try {
+        if (locator.sessionId) {
+          const response = await this.api.get(`/live-location/admin/sessions/${locator.sessionId}`)
+          return this.normalizeLiveLocationSession(response.data)
+        }
+        if (locator.rideId) {
+          const response = await this.api.get(`/live-location/admin/rides/${locator.rideId}`)
+          return this.normalizeLiveLocationSession(response.data)
+        }
+        if (locator.sosSessionId) {
+          const response = await this.api.get(`/live-location/admin/sos/${locator.sosSessionId}`)
+          return this.normalizeLiveLocationSession(response.data)
+        }
+      } catch (error) {
+        this.markLiveLocationAdminUnavailable(error)
       }
-      if (locator.rideId) {
-        const response = await this.api.get(`/live-location/admin/rides/${locator.rideId}`)
-        return this.normalizeLiveLocationSession(response.data)
-      }
-      if (locator.sosSessionId) {
-        const response = await this.api.get(`/live-location/admin/sos/${locator.sosSessionId}`)
-        return this.normalizeLiveLocationSession(response.data)
-      }
-    } catch {
-      // Fall back to current endpoints below.
     }
 
     if (locator.rideId) {
@@ -2779,6 +2790,22 @@ class AlboTaxService {
     return ageMs > staleAfterMs ? 'stale' : 'active'
   }
 
+  private shouldBypassLiveLocationAdminEndpoints(): boolean {
+    return this.liveLocationAdminFallbackUntil > Date.now()
+  }
+
+  private markLiveLocationAdminUnavailable(error: unknown) {
+    const serviceError = error instanceof ServiceRequestError ? error : null
+    const axiosError = axios.isAxiosError(error) ? error : null
+    const status = serviceError?.status ?? axiosError?.response?.status
+    const isNetworkFailure = Boolean(axiosError && !axiosError.response)
+    const isServerFailure = typeof status === 'number' && status >= 500
+
+    if (isNetworkFailure || isServerFailure) {
+      this.liveLocationAdminFallbackUntil = Date.now() + 60_000
+    }
+  }
+
   private extractLiveLocationPoint(
     value: unknown,
     fallbackObject: Record<string, unknown>,
@@ -2790,21 +2817,34 @@ class AlboTaxService {
     for (const candidate of candidates) {
       if (!candidate) continue
       for (const prefix of prefixes.length > 0 ? prefixes : ['']) {
-        const latitude = candidate[`${prefix}latitude`] ?? candidate[`${prefix}lat`] ?? candidate.latitude ?? candidate.lat
-        const longitude = candidate[`${prefix}longitude`] ?? candidate[`${prefix}lng`] ?? candidate.longitude ?? candidate.lng
-        if (typeof latitude === 'number' && typeof longitude === 'number') {
+        const latitude = this.toFiniteNumber(
+          candidate[`${prefix}latitude`] ?? candidate[`${prefix}lat`] ?? candidate.latitude ?? candidate.lat
+        )
+        const longitude = this.toFiniteNumber(
+          candidate[`${prefix}longitude`] ?? candidate[`${prefix}lng`] ?? candidate.longitude ?? candidate.lng
+        )
+        if (latitude != null && longitude != null) {
           return {
             latitude,
             longitude,
-            heading: typeof (candidate[`${prefix}heading`] ?? candidate.heading) === 'number' ? Number(candidate[`${prefix}heading`] ?? candidate.heading) : null,
-            speed: typeof (candidate[`${prefix}speed`] ?? candidate.speed) === 'number' ? Number(candidate[`${prefix}speed`] ?? candidate.speed) : null,
-            accuracy: typeof (candidate[`${prefix}accuracy`] ?? candidate.accuracy) === 'number' ? Number(candidate[`${prefix}accuracy`] ?? candidate.accuracy) : null,
+            heading: this.toFiniteNumber(candidate[`${prefix}heading`] ?? candidate.heading) ?? null,
+            speed: this.toFiniteNumber(candidate[`${prefix}speed`] ?? candidate.speed) ?? null,
+            accuracy: this.toFiniteNumber(candidate[`${prefix}accuracy`] ?? candidate.accuracy) ?? null,
             timestamp: this.extractTimestamp(candidate, [`${prefix}timestamp`, `${prefix}updated_at`, `${prefix}last_updated_at`, 'timestamp', 'updated_at', 'last_updated_at']) ?? new Date().toISOString(),
           }
         }
       }
     }
 
+    return undefined
+  }
+
+  private toFiniteNumber(value: unknown): number | undefined {
+    if (typeof value === 'number' && Number.isFinite(value)) return value
+    if (typeof value === 'string' && value.trim().length > 0) {
+      const parsed = Number(value)
+      if (Number.isFinite(parsed)) return parsed
+    }
     return undefined
   }
 
