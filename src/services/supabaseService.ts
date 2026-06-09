@@ -613,6 +613,9 @@ class AlboTaxService {
   private backendUrl: string
   private jwtToken: string
   private liveLocationAdminFallbackUntil = 0
+  private sosAdminFallbackUntil = 0
+  private sosSessionsCache: SosSession[] = []
+  private sosSessionCache = new Map<string, SosSession>()
 
   constructor(backendUrl: string, jwtToken: string) {
     this.backendUrl = backendUrl.replace(/\/$/, '')
@@ -1641,24 +1644,42 @@ class AlboTaxService {
   // ==========================================
 
   async getSosSessions(status?: string): Promise<SosSession[]> {
-    try {
-      const params = status ? { status } : {}
-      const response = await this.api.get('/sos/admin/sessions', { params })
-      return Array.isArray(response.data) ? response.data : response.data.sessions || []
-    } catch (error) {
-      console.error('Error fetching SOS sessions:', error)
-      throw error
+    if (!this.shouldBypassSosAdminEndpoints()) {
+      try {
+        const params = status ? { status } : {}
+        const response = await this.api.get('/sos/admin/sessions', { params })
+        const sessions = Array.isArray(response.data) ? response.data : response.data.sessions || []
+        this.sosSessionsCache = Array.isArray(sessions) ? sessions : []
+        this.sosSessionsCache.forEach((session) => {
+          if (session?.id) this.sosSessionCache.set(session.id, session)
+        })
+        return this.filterCachedSosSessions(status)
+      } catch (error) {
+        console.error('Error fetching SOS sessions:', error)
+        this.markSosAdminUnavailable(error)
+      }
     }
+
+    return this.filterCachedSosSessions(status)
   }
 
   async getSosSessionDetail(sessionId: string): Promise<SosSession> {
-    try {
-      const response = await this.api.get(`/sos/admin/sessions/${sessionId}`)
-      return response.data
-    } catch (error) {
-      console.error('Error fetching SOS session detail:', error)
-      throw error
+    if (!this.shouldBypassSosAdminEndpoints()) {
+      try {
+        const response = await this.api.get(`/sos/admin/sessions/${sessionId}`)
+        const session = response.data as SosSession
+        if (session?.id) this.sosSessionCache.set(session.id, session)
+        return session
+      } catch (error) {
+        console.error('Error fetching SOS session detail:', error)
+        this.markSosAdminUnavailable(error)
+      }
     }
+
+    const cached = this.sosSessionCache.get(sessionId)
+    if (cached) return cached
+
+    throw new ServiceRequestError('Unable to load SOS session detail. Backend SOS admin endpoint is unavailable.')
   }
 
   async resolveSosSession(sessionId: string, notes?: string): Promise<void> {
@@ -2794,6 +2815,10 @@ class AlboTaxService {
     return this.liveLocationAdminFallbackUntil > Date.now()
   }
 
+  private shouldBypassSosAdminEndpoints(): boolean {
+    return this.sosAdminFallbackUntil > Date.now()
+  }
+
   private markLiveLocationAdminUnavailable(error: unknown) {
     const serviceError = error instanceof ServiceRequestError ? error : null
     const axiosError = axios.isAxiosError(error) ? error : null
@@ -2804,6 +2829,23 @@ class AlboTaxService {
     if (isNetworkFailure || isServerFailure) {
       this.liveLocationAdminFallbackUntil = Date.now() + 60_000
     }
+  }
+
+  private markSosAdminUnavailable(error: unknown) {
+    const serviceError = error instanceof ServiceRequestError ? error : null
+    const axiosError = axios.isAxiosError(error) ? error : null
+    const status = serviceError?.status ?? axiosError?.response?.status
+    const isNetworkFailure = Boolean(axiosError && !axiosError.response)
+    const isServerFailure = typeof status === 'number' && status >= 500
+
+    if (isNetworkFailure || isServerFailure) {
+      this.sosAdminFallbackUntil = Date.now() + 60_000
+    }
+  }
+
+  private filterCachedSosSessions(status?: string): SosSession[] {
+    if (!status) return [...this.sosSessionsCache]
+    return this.sosSessionsCache.filter((session) => session.status === status)
   }
 
   private extractLiveLocationPoint(

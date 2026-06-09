@@ -6,9 +6,9 @@ The admin portal frontend now has a graceful fallback for live-location failures
 Frontend workspace:
 - `/Users/kagiso/Documents/Projects/admin_portal/admin_portal`
 
-Observed runtime backend issues from the browser at `http://localhost:3000/safety`:
-1. `GET /api/v1/live-location/admin/sos/:sosSessionId` is blocked by CORS when called from the local admin frontend.
-2. Admin login audit recording returns `500` with: `Could not find the 'admin_id' column of 'admin_sessions' in the schema cache`.
+Observed runtime backend issues from the browser at `http://localhost:3000/safety` and the deployed admin frontend `https://admin-portal-pink-six.vercel.app/safety`:
+1. `GET /api/v1/live-location/admin/sos/:sosSessionId` is blocked by CORS when called from both the local admin frontend and the deployed Vercel admin frontend.
+2. Admin login audit recording returns `500` with schema-cache errors including missing `admin_id` and `logged_in_at` columns on `admin_sessions`.
 
 Example failing request:
 - `https://admin-portal-backend-mgid.onrender.com/api/v1/live-location/admin/sos/308b680d-79b8-4ca4-9330-32e49693c345`
@@ -29,7 +29,7 @@ Acceptance criteria:
 - Responses include `Access-Control-Allow-Origin` for the admin frontend origin.
 - `OPTIONS` preflight succeeds for these routes.
 - Auth headers used by the admin portal are allowed.
-- The frontend can poll these endpoints from `http://localhost:3000` without browser CORS failures.
+- The frontend can poll these endpoints from `http://localhost:3000` and `https://admin-portal-pink-six.vercel.app` without browser CORS failures.
 
 ### 2. Return stable live-location payloads for SOS tracking
 For `GET /api/v1/live-location/admin/sos/:sosSessionId`, return a normalized admin payload with:
@@ -82,6 +82,7 @@ Notes:
 ### 3. Fix admin session audit insert path
 The frontend is hitting an auth-side backend error during admin session logging:
 - `Could not find the 'admin_id' column of 'admin_sessions' in the schema cache`
+- `Could not find the 'logged_in_at' column of 'admin_sessions' in the schema cache`
 
 Required action:
 - Align the backend write path with the actual `admin_sessions` table schema.
@@ -243,6 +244,8 @@ After the backend fix:
 ### Endpoint layer
 - Fix CORS for `http://localhost:3000` on `/api/v1/live-location/admin/*`.
 - Fix CORS for `http://localhost:3000` on `/api/v1/sos/admin/*`.
+- Fix CORS for `https://admin-portal-pink-six.vercel.app` on `/api/v1/live-location/admin/*`.
+- Fix CORS for `https://admin-portal-pink-six.vercel.app` on `/api/v1/sos/admin/*`.
 - Ensure `GET /api/v1/live-location/admin/sos/:sosSessionId` returns latest point, participant points, session status, and `route_path`.
 - Ensure `GET /api/v1/sos/admin/sessions/:sosSessionId` returns at least the last known SOS coordinates when live share is unavailable.
 
@@ -270,6 +273,7 @@ After the backend fix:
 
 ### Final verification
 - Open the admin Safety page from `http://localhost:3000` and confirm no CORS errors appear.
+- Open the deployed admin Safety page from `https://admin-portal-pink-six.vercel.app` and confirm no CORS errors appear.
 - Open an active SOS session and confirm the map loads the latest location.
 - Move the tracked device and confirm the admin map updates over time.
 - Confirm `route_path` is returned and visible as movement history.
