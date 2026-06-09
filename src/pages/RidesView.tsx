@@ -415,7 +415,7 @@ export const RidesView: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-brand-900">Rides</h1>
           <p className="mt-1 text-sm text-brand-500">
@@ -424,6 +424,7 @@ export const RidesView: React.FC = () => {
         </div>
         <Button
           variant="secondary"
+          className="w-full sm:w-auto"
           onClick={() => {
             if (activeTab === 'active_rides') {
               loadActiveTrips()
@@ -437,24 +438,27 @@ export const RidesView: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 border-b border-brand-100 pb-2">
-        {(['active_rides', 'ride_requests', 'history'] as TabType[]).map((tab) => (
-          <Button
-            key={tab}
-            variant={activeTab === tab ? 'primary' : 'secondary'}
-            onClick={() => {
-              setActiveTab(tab)
-              setSelectedRide(null)
-              setSelectedRequest(null)
-            }}
-          >
-            {tab === 'active_rides'
-              ? 'Active Rides'
-              : tab === 'ride_requests'
-              ? `Ride Requests${staleCount > 0 ? ` (${staleCount} stale)` : ''}`
-              : 'History'}
-          </Button>
-        ))}
+      <div className="-mx-1 overflow-x-auto border-b border-brand-100 px-1 pb-2">
+        <div className="flex min-w-max gap-2 sm:min-w-0 sm:flex-wrap">
+          {(['active_rides', 'ride_requests', 'history'] as TabType[]).map((tab) => (
+            <Button
+              key={tab}
+              variant={activeTab === tab ? 'primary' : 'secondary'}
+              className="shrink-0"
+              onClick={() => {
+                setActiveTab(tab)
+                setSelectedRide(null)
+                setSelectedRequest(null)
+              }}
+            >
+              {tab === 'active_rides'
+                ? 'Active Rides'
+                : tab === 'ride_requests'
+                ? `Ride Requests${staleCount > 0 ? ` (${staleCount} stale)` : ''}`
+                : 'History'}
+            </Button>
+          ))}
+        </div>
       </div>
 
       {/* Active Rides / History Tab */}
@@ -504,7 +508,7 @@ export const RidesView: React.FC = () => {
               </div>
             ) : selectedRide ? (
               <div className="space-y-4">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <h3 className="text-lg font-semibold text-brand-900">
                     Ride Detail
                   </h3>
@@ -518,45 +522,45 @@ export const RidesView: React.FC = () => {
                   <h4 className="mb-3 text-sm font-medium text-brand-700">Timeline</h4>
                   <div className="space-y-3 text-sm">
                     {selectedRide.created_at && (
-                      <div className="flex items-center gap-3">
+                      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
                         <div className="h-2 w-2 rounded-full bg-brand-400" />
                         <span className="text-brand-500">Requested</span>
-                        <span className="ml-auto font-medium text-brand-900">{new Date(selectedRide.created_at).toLocaleString()}</span>
+                        <span className="font-medium text-brand-900 sm:ml-auto">{new Date(selectedRide.created_at).toLocaleString()}</span>
                       </div>
                     )}
                     {isRideDetailResponse(selectedRide) && selectedRide.arrived_at && (
-                      <div className="flex items-center gap-3">
+                      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
                         <div className="h-2 w-2 rounded-full bg-amber-400" />
                         <span className="text-brand-500">Arrived</span>
-                        <span className="ml-auto font-medium text-brand-900">{new Date(selectedRide.arrived_at).toLocaleString()}</span>
+                        <span className="font-medium text-brand-900 sm:ml-auto">{new Date(selectedRide.arrived_at).toLocaleString()}</span>
                       </div>
                     )}
                     {selectedRide.started_at && (
-                      <div className="flex items-center gap-3">
+                      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
                         <div className="h-2 w-2 rounded-full bg-green-400" />
                         <span className="text-brand-500">Started</span>
-                        <span className="ml-auto font-medium text-brand-900">{new Date(selectedRide.started_at).toLocaleString()}</span>
+                        <span className="font-medium text-brand-900 sm:ml-auto">{new Date(selectedRide.started_at).toLocaleString()}</span>
                       </div>
                     )}
                     {selectedRide.completed_at && (
-                      <div className="flex items-center gap-3">
+                      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
                         <div className="h-2 w-2 rounded-full bg-green-500" />
                         <span className="text-brand-500">Completed</span>
-                        <span className="ml-auto font-medium text-brand-900">{new Date(selectedRide.completed_at).toLocaleString()}</span>
+                        <span className="font-medium text-brand-900 sm:ml-auto">{new Date(selectedRide.completed_at).toLocaleString()}</span>
                       </div>
                     )}
                     {isRideDetailResponse(selectedRide) && selectedRide.cancelled_at && (
-                      <div className="flex items-center gap-3">
+                      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
                         <div className="h-2 w-2 rounded-full bg-red-400" />
                         <span className="text-brand-500">Cancelled</span>
-                        <span className="ml-auto font-medium text-brand-900">{new Date(selectedRide.cancelled_at).toLocaleString()}</span>
+                        <span className="font-medium text-brand-900 sm:ml-auto">{new Date(selectedRide.cancelled_at).toLocaleString()}</span>
                       </div>
                     )}
                   </div>
                 </div>
 
                 {/* Customer & Driver Info */}
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="rounded-xl border border-brand-100 p-3">
                     <h4 className="mb-2 text-sm font-medium text-brand-700">Customer</h4>
                     <div className="space-y-1 text-sm">
@@ -651,7 +655,7 @@ export const RidesView: React.FC = () => {
 
                 {/* Ratings (for trips) */}
                 {isTripResponse(selectedRide) && (
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div className="rounded-xl border border-brand-100 p-3">
                       <h4 className="mb-1 text-sm font-medium text-brand-700">Customer Rating</h4>
                       <p className="text-lg font-bold text-amber-500">
@@ -775,10 +779,11 @@ export const RidesView: React.FC = () => {
                 {selectedRide.status !== 'completed' && selectedRide.status !== 'cancelled' && (
                   <div className="rounded-xl border border-red-200 bg-red-50 p-3">
                     <h4 className="mb-3 text-sm font-semibold text-red-700">Live Trip Intervention</h4>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                       <Button
                         variant="danger"
                         size="sm"
+                        className="w-full sm:w-auto"
                         onClick={() => {
                           setForceEndReason('')
                           setForceEndRole('operations_manager')
@@ -790,6 +795,7 @@ export const RidesView: React.FC = () => {
                       <Button
                         variant="warning"
                         size="sm"
+                        className="w-full sm:w-auto"
                         onClick={() => {
                           setPushTarget('customer')
                           setPushTitle('')
@@ -823,7 +829,7 @@ export const RidesView: React.FC = () => {
           <div className="space-y-4">
             {/* Marketplace Map — all requests as color-coded markers */}
             <Card>
-              <div className="mb-3 flex items-center justify-between">
+              <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm font-medium text-brand-700">
                     Marketplace · {marketplaceRequests.length} Active
@@ -835,7 +841,7 @@ export const RidesView: React.FC = () => {
                     </svg>
                   )}
                 </div>
-                <div className="flex items-center gap-3 text-xs">
+                <div className="flex flex-wrap items-center gap-3 text-xs">
                   <span className="flex items-center gap-1">
                     <span className="inline-block h-2.5 w-2.5 rounded-full bg-green-500" />
                     Has bids
@@ -853,7 +859,7 @@ export const RidesView: React.FC = () => {
 
               {isLoaded && !loadError && (
                 <div className="overflow-hidden rounded-xl border border-brand-100">
-                  <div className="h-[320px] w-full">
+                  <div className="h-[260px] w-full sm:h-[320px]">
                     <GoogleMap
                       mapContainerStyle={MAP_CONTAINER_STYLE}
                       center={DEFAULT_CENTER}
@@ -952,12 +958,12 @@ export const RidesView: React.FC = () => {
                 </div>
               )}
               {!isLoaded && !loadError && (
-                <div className="flex h-[320px] items-center justify-center rounded-xl border border-brand-100 bg-brand-50/50">
+                <div className="flex h-[260px] items-center justify-center rounded-xl border border-brand-100 bg-brand-50/50 sm:h-[320px]">
                   <p className="text-sm text-brand-400">Loading map...</p>
                 </div>
               )}
               {loadError && (
-                <div className="flex h-[320px] items-center justify-center rounded-xl border border-red-200 bg-red-50">
+                <div className="flex h-[260px] items-center justify-center rounded-xl border border-red-200 bg-red-50 sm:h-[320px]">
                   <p className="text-sm text-red-500">Failed to load Google Maps</p>
                 </div>
               )}
@@ -980,6 +986,7 @@ export const RidesView: React.FC = () => {
                   <Button
                     variant="danger"
                     size="sm"
+                    className="w-full sm:w-auto"
                     onClick={() => setShowBatchCancelModal(true)}
                   >
                     ✕ Cancel {staleCount} Stale
@@ -1022,7 +1029,7 @@ export const RidesView: React.FC = () => {
                 {/* Request Detail Card */}
                 <Card className="border-l-4 border-l-brand-500">
                   <div className="space-y-4">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <h3 className="text-lg font-semibold text-brand-900">
                         Ride Request Detail
                       </h3>
@@ -1032,7 +1039,7 @@ export const RidesView: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <div className="rounded-xl border border-brand-100 p-3">
                         <h4 className="mb-1 text-sm font-medium text-brand-700">Customer</h4>
                         <p className="font-medium text-brand-900">{selectedRequest.customer_name || 'N/A'}</p>
@@ -1067,9 +1074,10 @@ export const RidesView: React.FC = () => {
                       </p>
                     </div>
 
-                    <div className="flex gap-2">
+                    <div className="flex flex-col gap-2 sm:flex-row">
                       <Button
                         variant="danger"
+                        className="w-full sm:w-auto"
                         onClick={() => setShowCancelModal(true)}
                       >
                         ✕ Cancel Request
@@ -1081,7 +1089,7 @@ export const RidesView: React.FC = () => {
                 {/* Bid Stream Panel */}
                 <Card className="border-l-4 border-l-accent-500">
                   <div className="space-y-3">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                       <h3 className="text-sm font-medium text-brand-700">
                         Bid Stream · {selectedRequest.bid_count ?? 0} bid{(selectedRequest.bid_count ?? 0) !== 1 ? 's' : ''}
                       </h3>
@@ -1119,7 +1127,7 @@ export const RidesView: React.FC = () => {
                                   : 'border-brand-100 bg-white'
                               }`}
                             >
-                              <div className="flex items-center justify-between">
+                              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                 <div className="flex items-center gap-2">
                                   <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-100 text-xs font-bold text-brand-600">
                                     {idx + 1}
@@ -1131,7 +1139,7 @@ export const RidesView: React.FC = () => {
                                     <p className="text-xs text-brand-500">{bid.driver_phone}</p>
                                   </div>
                                 </div>
-                                <div className="text-right">
+                                <div className="sm:text-right">
                                   <p className={`text-sm font-bold ${idx === 0 ? 'text-green-700' : 'text-brand-900'}`}>
                                     {bid.price.toLocaleString()} CDF
                                   </p>

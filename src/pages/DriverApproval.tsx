@@ -42,6 +42,19 @@ type ProfileTab = typeof PROFILE_TABS[number]
 
 const WARNING_CATEGORIES = ['rate_abuse', 'no_show', 'safety', 'payment_fraud', 'other'] as const
 
+const REQUIRED_DRIVER_DOCUMENT_TYPES = [
+  'national_id',
+  'selfie_with_id',
+  'drivers_license',
+  'vehicle_registration',
+  'insurance',
+  'profile_photo',
+  'vehicle_photo_front',
+  'vehicle_photo_back',
+  'vehicle_photo_left',
+  'vehicle_photo_right',
+] as const
+
 const getFileType = (url: string): 'image' | 'pdf' => {
   const path = url.toLowerCase().split('?')[0]
   return path.endsWith('.pdf') ? 'pdf' : 'image'
@@ -50,9 +63,24 @@ const getFileType = (url: string): 'image' | 'pdf' => {
 const formatDocType = (type: string) =>
   type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 
-function docCompleteness(docs: DriverDocument[] | undefined): string {
-  if (!docs || docs.length === 0) return '0/10'
-  return `${Math.min(docs.length, 10)}/10`
+function docCompleteness(driver: Driver): string {
+  const runtimeDriver = driver as Driver & Record<string, unknown>
+  const uploadedTypes = new Set<string>()
+
+  for (const doc of driver.documents ?? []) {
+    if (doc?.file_url && doc.document_type) {
+      uploadedTypes.add(doc.document_type)
+    }
+  }
+
+  for (const documentType of REQUIRED_DRIVER_DOCUMENT_TYPES) {
+    const fieldValue = runtimeDriver[documentType]
+    if (typeof fieldValue === 'string' && fieldValue.trim()) {
+      uploadedTypes.add(documentType)
+    }
+  }
+
+  return `${uploadedTypes.size}/${REQUIRED_DRIVER_DOCUMENT_TYPES.length}`
 }
 
 function ageInQueue(submittedAt?: string): string {
@@ -114,6 +142,13 @@ export const DriverApproval: React.FC = () => {
   const [isAddingDriver, setIsAddingDriver] = useState(false)
 
   useEffect(() => { loadDrivers() }, [filterStatus])
+
+  const openDriverProfile = (driver: Driver, initialTab: ProfileTab = 'Overview') => {
+    setSelectedDriver(driver)
+    setProfileTab(initialTab)
+    setTabData([])
+    setNotes([])
+  }
 
   const loadDrivers = async () => {
     try {
@@ -368,13 +403,38 @@ export const DriverApproval: React.FC = () => {
       { key: 'action', label: '' },
     ]
     const listData = drivers.map(d => ({
+      _driver: d,
       full_name: d.full_name || '—',
       phone_number: d.phone_number || '—',
       vehicle_type: d.vehicle_type || '—',
-      completeness: docCompleteness(d.documents),
+      completeness: docCompleteness(d),
       age_in_queue: ageInQueue(d.submitted_at),
       verification_status: <Badge status={d.verification_status as any}>{d.verification_status.replace(/_/g, ' ')}</Badge>,
-      action: <Button size="sm" variant="secondary" onClick={() => { setSelectedDriver(d); setProfileTab('Overview'); setTabData([]); setNotes([]) }}>Review</Button>,
+      action: (
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={(event) => {
+              event.stopPropagation()
+              openDriverProfile(d, 'Overview')
+            }}
+          >
+            Review
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={(event) => {
+              event.stopPropagation()
+              openDriverProfile(d, 'Documents')
+            }}
+            disabled={!d.documents?.length}
+          >
+            Docs
+          </Button>
+        </div>
+      ),
     }))
 
     return (
@@ -400,7 +460,12 @@ export const DriverApproval: React.FC = () => {
 
         <Card>
           <div className="mb-4"><p className="text-sm text-slate-500">{drivers.length} driver{drivers.length !== 1 ? 's' : ''}</p></div>
-          <Table columns={listCols} data={listData} isLoading={isLoading} />
+          <Table
+            columns={listCols}
+            data={listData}
+            isLoading={isLoading}
+            onRowClick={(row) => openDriverProfile((row as { _driver: Driver })._driver, 'Overview')}
+          />
         </Card>
 
         <Modal isOpen={showAddDriverModal} title="Add Driver" onClose={() => setShowAddDriverModal(false)}
@@ -444,6 +509,7 @@ export const DriverApproval: React.FC = () => {
   const isPending = selectedDriver.verification_status === 'pending' || selectedDriver.verification_status === 'under_review'
   const isApproved = selectedDriver.verification_status === 'approved'
   const currentCategory: string = (selectedDriver as any).category || 'standard'
+  const hasDriverDocuments = !!selectedDriver.documents?.length
 
   return (
     <div className="space-y-6">
@@ -475,6 +541,63 @@ export const DriverApproval: React.FC = () => {
               </button>
             ))}
           </div>
+
+          <Card>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Documents</p>
+                <p className="mt-1 text-sm text-slate-600">
+                  Uploaded files stay accessible from every driver tab.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-700">
+                  {docCompleteness(selectedDriver)} complete
+                </span>
+                {profileTab !== 'Documents' && (
+                  <Button size="sm" variant="secondary" onClick={() => setProfileTab('Documents')}>
+                    Open Documents Tab
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {!hasDriverDocuments ? (
+              <p className="mt-4 text-sm text-slate-400">No documents submitted yet.</p>
+            ) : (
+              <div className="mt-4 space-y-3">
+                {selectedDriver.documents!.map(doc => {
+                  const isExpanded = expandedDocId === doc.id
+                  return (
+                    <div key={doc.id} className="overflow-hidden rounded-2xl border border-slate-200">
+                      <button
+                        type="button"
+                        onClick={() => setExpandedDocId(isExpanded ? null : doc.id)}
+                        className="flex w-full items-center justify-between gap-3 bg-slate-50 px-4 py-3 text-left transition-colors hover:bg-slate-100"
+                      >
+                        <div className="flex min-w-0 flex-wrap items-center gap-3">
+                          <span className="font-medium text-slate-900">{formatDocType(doc.document_type)}</span>
+                          <Badge status={doc.status as any}>{doc.status.replace(/_/g, ' ')}</Badge>
+                        </div>
+                        <svg className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+                      {isExpanded && (
+                        <div className="border-t border-slate-200 p-4">
+                          <DocumentPreview
+                            fileUrl={doc.file_url}
+                            fileType={getFileType(doc.file_url)}
+                            fileName={formatDocType(doc.document_type)}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </Card>
 
           {/* OVERVIEW */}
           {profileTab === 'Overview' && (
@@ -562,7 +685,7 @@ export const DriverApproval: React.FC = () => {
 
               <div className="flex items-center gap-3">
                 <span className="text-sm font-semibold text-slate-600">Completeness:</span>
-                <span className="rounded-full bg-slate-100 px-3 py-0.5 text-sm font-bold">{docCompleteness(selectedDriver.documents)}</span>
+                <span className="rounded-full bg-slate-100 px-3 py-0.5 text-sm font-bold">{docCompleteness(selectedDriver)}</span>
               </div>
 
               {isPending && (

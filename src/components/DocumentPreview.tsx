@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react'
+import React, { useState, useCallback } from 'react'
 import { Button } from './Button'
 
 interface DocumentPreviewProps {
@@ -14,10 +14,7 @@ export const DocumentPreview: React.FC<DocumentPreviewProps> = ({
 }) => {
   const [zoom, setZoom] = useState(1)
   const [rotation, setRotation] = useState(0)
-  const [isFullscreen, setIsFullscreen] = useState(false)
-  const [isZoomModalOpen, setIsZoomModalOpen] = useState(false)
-  const imgRef = useRef<HTMLImageElement>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
+  const [isViewerOpen, setIsViewerOpen] = useState(false)
 
   const ZOOM_STEP = 0.25
   const MIN_ZOOM = 0.25
@@ -40,37 +37,21 @@ export const DocumentPreview: React.FC<DocumentPreviewProps> = ({
     setRotation(0)
   }, [])
 
-  const toggleFullscreen = useCallback(async () => {
-    if (!containerRef.current) return
-
-    if (!document.fullscreenElement) {
-      try {
-        await containerRef.current.requestFullscreen()
-        setIsFullscreen(true)
-      } catch {
-        // Fullscreen not supported or denied
-        setIsZoomModalOpen(true)
-      }
-    } else {
-      await document.exitFullscreen()
-      setIsFullscreen(false)
-    }
+  const openViewer = useCallback(() => {
+    setIsViewerOpen(true)
   }, [])
 
-  // Listen for fullscreen change events
-  React.useEffect(() => {
-    const handler = () => {
-      setIsFullscreen(!!document.fullscreenElement)
-    }
-    document.addEventListener('fullscreenchange', handler)
-    return () => document.removeEventListener('fullscreenchange', handler)
+  const closeViewer = useCallback(() => {
+    setIsViewerOpen(false)
   }, [])
+
+  const downloadName = fileName.includes('.') ? fileName : `${fileName}.${fileType === 'pdf' ? 'pdf' : 'jpg'}`
 
   const imageControls = (
     <div className="flex flex-wrap items-center gap-2">
-      {/* Zoom controls */}
       <div className="flex items-center gap-1 rounded-xl border border-brand-100 bg-white p-1">
         <button
+          type="button"
           onClick={handleZoomOut}
           disabled={zoom <= MIN_ZOOM}
           className="rounded-lg p-1.5 text-brand-600 hover:bg-brand-50 disabled:opacity-40"
@@ -95,8 +76,8 @@ export const DocumentPreview: React.FC<DocumentPreviewProps> = ({
         </button>
       </div>
 
-      {/* Rotate */}
       <button
+        type="button"
         onClick={handleRotate}
         className="rounded-xl border border-brand-100 bg-white p-1.5 text-brand-600 hover:bg-brand-50"
         title="Rotate 90°"
@@ -106,9 +87,9 @@ export const DocumentPreview: React.FC<DocumentPreviewProps> = ({
         </svg>
       </button>
 
-      {/* Reset */}
       {(zoom !== 1 || rotation !== 0) && (
         <button
+          type="button"
           onClick={handleReset}
           className="rounded-xl border border-brand-100 bg-white p-1.5 text-brand-600 hover:bg-brand-50"
           title="Reset view"
@@ -118,44 +99,70 @@ export const DocumentPreview: React.FC<DocumentPreviewProps> = ({
           </svg>
         </button>
       )}
-
-      {/* Fullscreen */}
-      <button
-        onClick={toggleFullscreen}
-        className="rounded-xl border border-brand-100 bg-white p-1.5 text-brand-600 hover:bg-brand-50"
-        title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-      >
-        {isFullscreen ? (
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        ) : (
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-          </svg>
-        )}
-      </button>
     </div>
   )
 
-  const renderImage = (isModal = false) => (
+  const renderImage = (isViewer = false) => (
     <img
-      ref={imgRef}
       src={fileUrl}
       alt={fileName}
       className="max-w-full transition-transform duration-200 ease-out"
       style={{
         transform: `scale(${zoom}) rotate(${rotation}deg)`,
-        maxHeight: isModal ? '80vh' : '24rem',
+        maxHeight: isViewer ? '86vh' : '44rem',
         objectFit: 'contain',
       }}
       onError={(e) => {
-        // If image fails to load, show fallback
         const target = e.currentTarget
         target.style.display = 'none'
         const fallback = target.nextElementSibling as HTMLElement
         if (fallback) fallback.style.display = 'flex'
       }}
+    />
+  )
+
+  const actionLinks = (
+    <div className="flex flex-wrap items-center gap-2">
+      <button
+        type="button"
+        onClick={openViewer}
+        className="inline-flex items-center gap-2 rounded-xl border border-brand-100 bg-white px-3 py-2 text-sm font-medium text-brand-700 hover:bg-brand-50"
+      >
+        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+        </svg>
+        Full screen
+      </button>
+      <a
+        href={fileUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-2 rounded-xl border border-brand-100 bg-white px-3 py-2 text-sm font-medium text-brand-700 hover:bg-brand-50"
+      >
+        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 3h7m0 0v7m0-7L10 14" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5v14h14" />
+        </svg>
+        Open tab
+      </a>
+      <a
+        href={fileUrl}
+        download={downloadName}
+        className="inline-flex items-center gap-2 rounded-xl border border-brand-100 bg-white px-3 py-2 text-sm font-medium text-brand-700 hover:bg-brand-50"
+      >
+        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+        Download
+      </a>
+    </div>
+  )
+
+  const renderPdfFrame = (isViewer = false) => (
+    <iframe
+      src={fileUrl}
+      title={fileName}
+      className={`w-full rounded-xl border-0 bg-white ${isViewer ? 'h-[86vh]' : 'h-[28rem] sm:h-[38rem] lg:h-[52rem]'}`}
     />
   )
 
@@ -179,28 +186,22 @@ export const DocumentPreview: React.FC<DocumentPreviewProps> = ({
 
   return (
     <>
-      <div ref={containerRef} className="space-y-4">
+      <div className="space-y-4">
+        <div className="flex flex-col gap-3 rounded-2xl border border-brand-100 bg-brand-50/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-brand-900">{fileName}</p>
+            <p className="text-xs uppercase tracking-[0.18em] text-brand-500">{fileType === 'pdf' ? 'PDF preview' : 'Image preview'}</p>
+          </div>
+          <div className="flex flex-col gap-3 sm:items-end">
+            {fileType === 'image' && imageControls}
+            {actionLinks}
+          </div>
+        </div>
+
         {fileType === 'image' ? (
           <>
-            {/* Toolbar */}
-            <div className="flex items-center justify-between">
-              {imageControls}
-              <a
-                href={fileUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-sm font-medium text-brand-600 hover:text-brand-700"
-              >
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                Download
-              </a>
-            </div>
-
-            {/* Image container */}
             <div
-              className="flex min-h-80 items-center justify-center overflow-hidden rounded-xl border border-brand-100 bg-brand-50/50"
+              className="flex min-h-[22rem] items-center justify-center overflow-auto rounded-2xl border border-brand-100 bg-white p-4 sm:p-6"
               onDoubleClick={handleZoomIn}
             >
               {renderImage()}
@@ -208,86 +209,67 @@ export const DocumentPreview: React.FC<DocumentPreviewProps> = ({
             </div>
           </>
         ) : (
-          /* PDF fallback */
-          <div className="flex min-h-80 items-center justify-center overflow-hidden rounded-xl border border-brand-100 bg-brand-50/50">
-            <div className="text-center">
-              <svg className="mx-auto mb-3 h-16 w-16 text-brand-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-              </svg>
-              <p className="text-lg font-semibold text-brand-700">PDF Document</p>
-              <p className="mt-1 text-sm text-brand-500">{fileName}</p>
-              <a
-                href={fileUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-4 inline-block"
-              >
-                <Button variant="primary" size="sm">
-                  Open PDF
-                </Button>
-              </a>
-            </div>
+          <div className="overflow-hidden rounded-2xl border border-brand-100 bg-white p-2 sm:p-3">
+            {renderPdfFrame()}
           </div>
-        )}
-
-        {/* Download link for non-image types */}
-        {fileType !== 'image' && (
-          <a
-            href={fileUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-sm font-medium text-brand-600 hover:text-brand-700"
-          >
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            Download File
-          </a>
         )}
       </div>
 
-      {/* Zoom Modal (fallback when fullscreen not available) */}
-      {isZoomModalOpen && (
+      {isViewerOpen && (
         <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm"
-          onClick={() => setIsZoomModalOpen(false)}
+          className="fixed inset-0 z-[100] bg-slate-950/90 backdrop-blur-sm"
+          onClick={closeViewer}
         >
           <div
-            className="relative max-h-[95vh] max-w-[95vw] overflow-auto rounded-2xl bg-white p-4 shadow-2xl"
+            className="relative flex h-full w-full flex-col px-3 py-3 sm:px-6 sm:py-5"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Modal toolbar */}
-            <div className="mb-3 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                {imageControls}
+            <div className="mb-3 flex flex-col gap-3 rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-white sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold">{fileName}</p>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-300">Full screen viewer</p>
               </div>
-              <button
-                onClick={() => setIsZoomModalOpen(false)}
-                className="rounded-lg p-1.5 text-brand-500 hover:bg-brand-50"
-              >
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
+              <div className="flex flex-col gap-3 sm:items-end">
+                {fileType === 'image' && imageControls}
+                <div className="flex flex-wrap items-center gap-2">
+                  <a
+                    href={fileUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-white hover:bg-white/10"
+                  >
+                    Open tab
+                  </a>
+                  <a
+                    href={fileUrl}
+                    download={downloadName}
+                    className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-white hover:bg-white/10"
+                  >
+                    Download
+                  </a>
+                  <button
+                    type="button"
+                    onClick={closeViewer}
+                    className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-white hover:bg-white/10"
+                  >
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    Close
+                  </button>
+                </div>
+              </div>
             </div>
-            <div className="flex items-center justify-center">
+            <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto rounded-2xl border border-white/10 bg-slate-900/60 p-3 sm:p-5">
               {fileType === 'image' ? (
-                <img
-                  src={fileUrl}
-                  alt={fileName}
-                  className="max-w-full transition-transform duration-200 ease-out"
-                  style={{
-                    transform: `scale(${zoom}) rotate(${rotation}deg)`,
-                    maxHeight: '80vh',
-                    objectFit: 'contain',
-                  }}
-                />
+                <>
+                  {renderImage(true)}
+                  {imageErrorFallback}
+                </>
               ) : (
-                <iframe
-                  src={fileUrl}
-                  title={fileName}
-                  className="h-[80vh] w-full rounded-lg"
-                />
+                <div className="h-full w-full overflow-hidden rounded-xl bg-white">
+                  {renderPdfFrame(true)}
+                </div>
               )}
             </div>
           </div>

@@ -282,9 +282,11 @@ export const AdminLayout: React.FC = () => {
             </div>
           </header>
 
-          <main className="relative flex-1 px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+          <main className="relative flex-1 px-4 py-6 sm:px-6 sm:py-8 xl:px-10 2xl:px-12">
             <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-[radial-gradient(circle_at_top,rgba(56,189,248,0.12),transparent_70%)]" />
-            <Outlet />
+            <div className="relative mx-auto flex w-full max-w-[1680px] flex-1 flex-col text-[15px] leading-6 lg:text-base">
+              <Outlet />
+            </div>
           </main>
         </div>
       </div>
