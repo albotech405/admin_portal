@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { GoogleMap, InfoWindow, Marker, useLoadScript } from '@react-google-maps/api'
+import { GoogleMap, InfoWindow, Marker, Polyline, useLoadScript } from '@react-google-maps/api'
 import { Badge, Button, Card, Modal } from '../components'
 import { LiveLocationSession, SosSession, supabaseService } from '../services/supabaseService'
 
@@ -29,6 +29,11 @@ type SafetyMarker = {
   color: string
   updatedAt?: string
   position: { lat: number; lng: number }
+}
+
+type SafetyPathPoint = {
+  lat: number
+  lng: number
 }
 
 const EXCLUDED_SOS_KEYS = ['id', 'ride_id', 'triggered_by', 'status', 'created_at', 'resolved_by', 'resolved_at']
@@ -113,6 +118,24 @@ const extractSosFallbackPoint = (session: SosSession | null): { lat: number; lng
   }
 }
 
+const normalizeRoutePath = (session: LiveLocationSession | null): SafetyPathPoint[] => {
+  if (!session?.route_path || !Array.isArray(session.route_path)) return []
+
+  const points = session.route_path
+    .map((point) => {
+      const lat = toFiniteNumber(point?.latitude)
+      const lng = toFiniteNumber(point?.longitude)
+      return lat != null && lng != null ? { lat, lng } : null
+    })
+    .filter(Boolean) as SafetyPathPoint[]
+
+  return points.filter((point, index, allPoints) => {
+    if (index === 0) return true
+    const previous = allPoints[index - 1]
+    return previous.lat !== point.lat || previous.lng !== point.lng
+  })
+}
+
 const fmtVal = (key: string, value: unknown): string => {
   if (value == null) return '—'
   if (typeof value === 'boolean') return value ? 'Yes' : 'No'
@@ -163,9 +186,10 @@ const liveStatusBadge = (status?: string) => {
 const SafetyLiveLocationMap: React.FC<{
   apiKey: string
   markers: SafetyMarker[]
+  routePath: SafetyPathPoint[]
   activeMarker: MarkerKey | null
   onMarkerSelect: (markerKey: MarkerKey | null) => void
-}> = ({ apiKey, markers, activeMarker, onMarkerSelect }) => {
+}> = ({ apiKey, markers, routePath, activeMarker, onMarkerSelect }) => {
   const [mapRef, setMapRef] = useState<google.maps.Map | null>(null)
   const lastViewportSignatureRef = useRef<string>('')
   const { isLoaded, loadError } = useLoadScript({
@@ -227,6 +251,18 @@ const SafetyLiveLocationMap: React.FC<{
             styles: [{ featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] }],
           }}
         >
+          {routePath.length > 1 && (
+            <Polyline
+              path={routePath}
+              options={{
+                geodesic: true,
+                strokeColor: '#dc2626',
+                strokeOpacity: 0.8,
+                strokeWeight: 4,
+                zIndex: 1,
+              }}
+            />
+          )}
           {markers.map((marker) => (
             <Marker
               key={marker.key}
@@ -371,6 +407,8 @@ export const SafetyView: React.FC = () => {
   }, [selectedSession?.id, selectedSession?.triggered_by, loadEmergencyContacts])
 
   const fallbackSosPoint = extractSosFallbackPoint(selectedSession)
+  const routePath = normalizeRoutePath(liveSession)
+  const latestRoutePoint = routePath.length > 0 ? routePath[routePath.length - 1] : null
 
   const markers = [
     liveSession?.participants.customer?.point
@@ -384,6 +422,16 @@ export const SafetyView: React.FC = () => {
             lat: liveSession.participants.customer.point.latitude,
             lng: liveSession.participants.customer.point.longitude,
           },
+        }
+      : null,
+    !liveSession?.participants.customer?.point && latestRoutePoint
+      ? {
+          key: 'customer' as const,
+          label: liveSession?.customer_name || 'Customer',
+          phone: liveSession?.customer_phone,
+          color: '#dc2626',
+          updatedAt: liveSession?.participants.customer?.last_updated_at ?? liveSession?.last_location_timestamp,
+          position: latestRoutePoint,
         }
       : null,
     liveSession?.participants.driver?.point
@@ -554,6 +602,7 @@ export const SafetyView: React.FC = () => {
               </div>
               <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
                 <span>Last update: {formatDateTime(liveSession?.last_location_timestamp, 'No live update yet')}</span>
+                {routePath.length > 1 && <span>Trail points: {routePath.length}</span>}
               </div>
             </div>
 
@@ -561,6 +610,7 @@ export const SafetyView: React.FC = () => {
               <SafetyLiveLocationMap
                 apiKey={apiKey}
                 markers={markers}
+                routePath={routePath}
                 activeMarker={activeMarker}
                 onMarkerSelect={setActiveMarker}
               />
@@ -619,6 +669,11 @@ export const SafetyView: React.FC = () => {
                     </div>
                   ))}
                 </div>
+                {routePath.length > 1 && (
+                  <div className="mt-4 rounded-2xl border border-amber-200 bg-white px-4 py-3 text-sm text-slate-700">
+                    Movement trail available: {routePath.length} recent location point{routePath.length === 1 ? '' : 's'}.
+                  </div>
+                )}
               </div>
             ) : (
               <div className="flex h-[320px] flex-col items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 px-6 text-center sm:h-[420px]">

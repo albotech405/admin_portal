@@ -237,3 +237,40 @@ After the backend fix:
 - Admin users should receive real-time alert notifications for SOS events.
 - Nearby drivers should receive emergency alerts with location and involved-party context.
 - SOS tracking should behave like a continuous live-share session similar to WhatsApp live location.
+
+## Short Implementation Checklist
+
+### Endpoint layer
+- Fix CORS for `http://localhost:3000` on `/api/v1/live-location/admin/*`.
+- Fix CORS for `http://localhost:3000` on `/api/v1/sos/admin/*`.
+- Ensure `GET /api/v1/live-location/admin/sos/:sosSessionId` returns latest point, participant points, session status, and `route_path`.
+- Ensure `GET /api/v1/sos/admin/sessions/:sosSessionId` returns at least the last known SOS coordinates when live share is unavailable.
+
+### Live-share session model
+- Create or finalize a live-share session record with `started_at`, `expires_at`, `stopped_at`, `ended_at`, `stop_reason`, `status`, and `stale_after_seconds`.
+- Store the latest customer live point for each SOS session.
+- Store the latest associated driver live point when available.
+- Store recent movement history in `route_path` or an equivalent location-history table that can be serialized into `route_path`.
+
+### Realtime updates
+- Accept frequent mobile location updates for active SOS sessions.
+- Update the latest point and append or roll forward the route history on each location update.
+- Mark sessions `stale` when heartbeat updates stop.
+- Preserve the final last-known location after the share expires or is manually stopped.
+
+### Alerts and recipients
+- Notify admins immediately when an SOS session starts.
+- Notify nearby eligible drivers with incident location and involved-party context.
+- Persist recipient audit records and delivery status for both admin and driver notifications.
+
+### Admin auth / session logging
+- Fix the backend `admin_sessions` write path to match the real schema.
+- Reconcile missing fields including `admin_id` and `logged_in_at`.
+- Refresh migrations or schema cache so admin login stops returning `500`.
+
+### Final verification
+- Open the admin Safety page from `http://localhost:3000` and confirm no CORS errors appear.
+- Open an active SOS session and confirm the map loads the latest location.
+- Move the tracked device and confirm the admin map updates over time.
+- Confirm `route_path` is returned and visible as movement history.
+- Confirm the final last-known location remains available after the share stops.
