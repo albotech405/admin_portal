@@ -317,7 +317,7 @@ export const FinanceView: React.FC = () => {
     driver_name: t.driver_name || '—',
     amount: (
       <span className="font-mono font-medium text-brand-950">
-        {formatAmount(t.amount)} FC
+        {formatAmount(t.amount)} CDF
       </span>
     ),
     method: getMethodLabel(t.method),
@@ -502,7 +502,7 @@ export const FinanceView: React.FC = () => {
           {/* Amount Min */}
           <div>
             <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-brand-500">
-              Min Amount (FC)
+              Min Amount (CDF)
             </label>
             <input
               type="number"
@@ -517,7 +517,7 @@ export const FinanceView: React.FC = () => {
           {/* Amount Max */}
           <div>
             <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-brand-500">
-              Max Amount (FC)
+              Max Amount (CDF)
             </label>
             <input
               type="number"
@@ -677,11 +677,11 @@ export const FinanceView: React.FC = () => {
             <div>
               <p className="text-xs font-medium uppercase tracking-wide text-brand-500">Amount</p>
               <p className="mt-1 font-mono text-lg font-bold text-brand-950">
-                {formatAmount(selectedTx.amount)} FC
+                {formatAmount(selectedTx.amount)} CDF
               </p>
               {selectedTx.platform_commission_amount != null && (
                 <p className="text-xs text-brand-500">
-                  Commission: {formatAmount(selectedTx.platform_commission_amount)} FC
+                  Commission: {formatAmount(selectedTx.platform_commission_amount)} CDF
                 </p>
               )}
             </div>

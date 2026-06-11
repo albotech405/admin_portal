@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { Card, Button } from '../components'
 import { supabaseService, DashboardMetrics } from '../services/supabaseService'
 import { useNavigate } from 'react-router-dom'
+import { convertUsdToCdf, formatCdf } from '../lib/currency'
 
 const workstreams = [
   {
@@ -38,15 +39,26 @@ const workstreams = [
 
 export const Dashboard: React.FC = () => {
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null)
+  const [exchangeRate, setExchangeRate] = useState<number | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const navigate = useNavigate()
 
   useEffect(() => {
     loadMetrics(true)
+    loadExchangeRate()
     const interval = setInterval(() => loadMetrics(false), 30000)
     return () => clearInterval(interval)
   }, [])
+
+  const loadExchangeRate = async () => {
+    try {
+      const data = await supabaseService.getExchangeRate()
+      setExchangeRate(data.rate_cdf_per_usd)
+    } catch (err) {
+      console.error(err)
+    }
+  }
 
   const loadMetrics = async (showLoader = false) => {
     try {
@@ -61,6 +73,9 @@ export const Dashboard: React.FC = () => {
       if (showLoader) setIsLoading(false)
     }
   }
+
+  const convertedGmvToday =
+    metrics?.gmv_usd_today != null ? convertUsdToCdf(metrics.gmv_usd_today, exchangeRate) : null
 
   return (
     <div className="space-y-8">
@@ -130,17 +145,17 @@ export const Dashboard: React.FC = () => {
             </Card>
             <Card>
               <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">GMV today (CDF)</p>
-              <p className="mt-2 text-3xl font-bold text-green-700">{metrics.gmv_cdf_today != null ? `${metrics.gmv_cdf_today.toLocaleString()} FC` : '—'}</p>
+              <p className="mt-2 text-3xl font-bold text-green-700">{metrics.gmv_cdf_today != null ? formatCdf(metrics.gmv_cdf_today) : '—'}</p>
               <p className="mt-1 text-xs text-slate-400">Gross merchandise value</p>
             </Card>
             <Card>
-              <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">GMV today (USD)</p>
-              <p className="mt-2 text-3xl font-bold text-green-600">{metrics.gmv_usd_today != null ? `$${metrics.gmv_usd_today.toFixed(2)}` : '—'}</p>
-              <p className="mt-1 text-xs text-slate-400">At current exchange rate</p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">GMV today (Converted CDF)</p>
+              <p className="mt-2 text-3xl font-bold text-green-600">{convertedGmvToday != null ? formatCdf(convertedGmvToday) : '—'}</p>
+              <p className="mt-1 text-xs text-slate-400">Converted from the active exchange rate</p>
             </Card>
             <Card>
               <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Commission today</p>
-              <p className="mt-2 text-3xl font-bold text-blue-700">{metrics.commission_today != null ? `${metrics.commission_today.toLocaleString()} FC` : '—'}</p>
+              <p className="mt-2 text-3xl font-bold text-blue-700">{metrics.commission_today != null ? formatCdf(metrics.commission_today) : '—'}</p>
               <p className="mt-1 text-xs text-slate-400">Platform fees earned</p>
             </Card>
           </div>

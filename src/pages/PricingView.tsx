@@ -9,6 +9,7 @@ import {
   CategoryMetricsItem,
   PricingAuditLogItem,
 } from '../services/supabaseService'
+import { formatUsdAsCdf, parseCdfInputToUsd } from '../lib/currency'
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -23,7 +24,7 @@ const TIME_BANDS = [
 const METRICS_COLUMNS = [
   { key: 'category', label: 'Category' },
   { key: 'ride_volume', label: 'Ride Volume' },
-  { key: 'average_fare', label: 'Avg Fare (USD)' },
+  { key: 'average_fare', label: 'Avg Fare (CDF)' },
   { key: 'active_drivers', label: 'Active Drivers' },
   { key: 'total_requests', label: 'Total Requests' },
   { key: 'completed_trips', label: 'Completed' },
@@ -56,8 +57,8 @@ function formatDateTime(dateStr?: string | null): string {
   }
 }
 
-function formatAmount(amount: number): string {
-  return `$${amount.toFixed(2)}`
+function formatAmount(amount: number, exchangeRate?: number | null): string {
+  return formatUsdAsCdf(amount, exchangeRate, 0)
 }
 
 function getChangeTypeBadge(type: string): 'info' | 'warning' | 'success' | 'neutral' {
@@ -79,7 +80,8 @@ const VehiclePricingCard: React.FC<{
   vehicle: VehiclePricingConfig
   onSave: (body: Partial<VehiclePricingConfig>) => Promise<void>
   isSaving: boolean
-}> = ({ vehicle, onSave, isSaving }) => {
+  exchangeRate: number | null
+}> = ({ vehicle, onSave, isSaving, exchangeRate }) => {
   const [baseFare, setBaseFare] = useState(vehicle.base_fare)
   const [perKm, setPerKm] = useState(vehicle.per_km)
   const [minFare, setMinFare] = useState(vehicle.minimum_fare)
@@ -133,35 +135,38 @@ const VehiclePricingCard: React.FC<{
 
       <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
         <div>
-          <label className="block text-xs font-medium text-brand-600">Base Fare (USD)</label>
+          <label className="block text-xs font-medium text-brand-600">Base Fare (CDF)</label>
           <input
             type="number"
             step="0.01"
             min="0"
-            value={baseFare}
-            onChange={(e) => setBaseFare(parseFloat(e.target.value) || 0)}
+            value={exchangeRate ? (baseFare * exchangeRate).toFixed(0) : ''}
+            onChange={(e) => setBaseFare(parseCdfInputToUsd(e.target.value, exchangeRate) || 0)}
+            disabled={!exchangeRate}
             className="mt-1 w-full rounded-lg border border-brand-200 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
           />
         </div>
         <div>
-          <label className="block text-xs font-medium text-brand-600">Per KM (USD)</label>
+          <label className="block text-xs font-medium text-brand-600">Per KM (CDF)</label>
           <input
             type="number"
             step="0.01"
             min="0"
-            value={perKm}
-            onChange={(e) => setPerKm(parseFloat(e.target.value) || 0)}
+            value={exchangeRate ? (perKm * exchangeRate).toFixed(0) : ''}
+            onChange={(e) => setPerKm(parseCdfInputToUsd(e.target.value, exchangeRate) || 0)}
+            disabled={!exchangeRate}
             className="mt-1 w-full rounded-lg border border-brand-200 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
           />
         </div>
         <div>
-          <label className="block text-xs font-medium text-brand-600">Min Fare (USD)</label>
+          <label className="block text-xs font-medium text-brand-600">Min Fare (CDF)</label>
           <input
             type="number"
             step="0.01"
             min="0"
-            value={minFare}
-            onChange={(e) => setMinFare(parseFloat(e.target.value) || 0)}
+            value={exchangeRate ? (minFare * exchangeRate).toFixed(0) : ''}
+            onChange={(e) => setMinFare(parseCdfInputToUsd(e.target.value, exchangeRate) || 0)}
+            disabled={!exchangeRate}
             className="mt-1 w-full rounded-lg border border-brand-200 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
           />
         </div>
@@ -186,11 +191,11 @@ const VehiclePricingCard: React.FC<{
         <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
           <div>
             <span className="text-brand-500">Day fare:</span>{' '}
-            <span className="font-semibold text-brand-900">{formatAmount(finalDayFare)}</span>
+            <span className="font-semibold text-brand-900">{formatAmount(finalDayFare, exchangeRate)}</span>
           </div>
           <div>
             <span className="text-brand-500">Night fare:</span>{' '}
-            <span className="font-semibold text-brand-900">{formatAmount(finalNightFare)}</span>
+            <span className="font-semibold text-brand-900">{formatAmount(finalNightFare, exchangeRate)}</span>
           </div>
         </div>
       </div>
@@ -208,7 +213,8 @@ const GlobalConfigCard: React.FC<{
   config: GlobalPricingConfig
   onSave: (body: Partial<GlobalPricingConfig>) => Promise<void>
   isSaving: boolean
-}> = ({ config, onSave, isSaving }) => {
+  exchangeRate: number | null
+}> = ({ config, onSave, isSaving, exchangeRate }) => {
   const [vatRate, setVatRate] = useState(config.vat_rate)
   const [dayMult, setDayMult] = useState(config.day_multiplier)
   const [eveningMult, setEveningMult] = useState(config.evening_multiplier)
@@ -315,19 +321,19 @@ const GlobalConfigCard: React.FC<{
           <div>
             <span className="text-brand-500">Day:</span>{' '}
             <span className="font-semibold text-brand-900">
-              {formatAmount(dayFare * (1 + vatRate))}
+              {formatAmount(dayFare * (1 + vatRate), exchangeRate)}
             </span>
           </div>
           <div>
             <span className="text-brand-500">Evening:</span>{' '}
             <span className="font-semibold text-brand-900">
-              {formatAmount(eveningFare * (1 + vatRate))}
+              {formatAmount(eveningFare * (1 + vatRate), exchangeRate)}
             </span>
           </div>
           <div>
             <span className="text-brand-500">Night:</span>{' '}
             <span className="font-semibold text-brand-900">
-              {formatAmount(nightFare * (1 + vatRate))}
+              {formatAmount(nightFare * (1 + vatRate), exchangeRate)}
             </span>
           </div>
         </div>
@@ -346,7 +352,8 @@ const CategoryMultiplierCard: React.FC<{
   category: CategoryMultiplierItem
   onSave: (body: Partial<CategoryMultiplierItem>) => Promise<void>
   isSaving: boolean
-}> = ({ category, onSave, isSaving }) => {
+  exchangeRate: number | null
+}> = ({ category, onSave, isSaving, exchangeRate }) => {
   const [multiplier, setMultiplier] = useState(category.multiplier)
   const [isActive, setIsActive] = useState(category.is_active)
   const [localSaving, setLocalSaving] = useState(false)
@@ -405,9 +412,9 @@ const CategoryMultiplierCard: React.FC<{
 
       <div className="mt-3 rounded-lg bg-brand-50 p-2 text-sm">
         <span className="text-brand-500">Price impact (5 km sample):</span>{' '}
-        <span className="font-semibold text-brand-900">{formatAmount(impactPrice)}</span>
+        <span className="font-semibold text-brand-900">{formatAmount(impactPrice, exchangeRate)}</span>
         <span className="ml-1 text-xs text-brand-400">
-          (×{multiplier.toFixed(2)} of base {formatAmount(sampleBasePrice)})
+          (×{multiplier.toFixed(2)} of base {formatAmount(sampleBasePrice, exchangeRate)})
         </span>
       </div>
 
@@ -420,7 +427,7 @@ const CategoryMultiplierCard: React.FC<{
   )
 }
 
-const FareSimulator: React.FC = () => {
+const FareSimulator: React.FC<{ exchangeRate: number | null }> = ({ exchangeRate }) => {
   const [vehicleType, setVehicleType] = useState('car')
   const [distanceKm, setDistanceKm] = useState(5)
   const [timeBand, setTimeBand] = useState<'day' | 'evening' | 'night'>('day')
@@ -537,6 +544,7 @@ const FareSimulator: React.FC = () => {
                   <span className="text-brand-700">{step.label}</span>
                   <span className="font-mono font-semibold text-brand-900">
                     {formatAmount(step.value)}
+                    
                   </span>
                 </div>
               ))}
@@ -546,24 +554,24 @@ const FareSimulator: React.FC = () => {
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div className="rounded-lg bg-brand-700 p-3 text-white">
               <p className="text-xs text-brand-200">Final Price</p>
-              <p className="mt-1 text-xl font-bold">{formatAmount(result.final_price)}</p>
+              <p className="mt-1 text-xl font-bold">{formatAmount(result.final_price, exchangeRate)}</p>
             </div>
             <div className="rounded-lg bg-brand-50 p-3">
               <p className="text-xs text-brand-500">Excl. VAT</p>
               <p className="mt-1 text-lg font-semibold text-brand-900">
-                {formatAmount(result.price_excluding_vat)}
+                {formatAmount(result.price_excluding_vat, exchangeRate)}
               </p>
             </div>
             <div className="rounded-lg bg-amber-50 p-3">
               <p className="text-xs text-amber-600">Commission</p>
               <p className="mt-1 text-lg font-semibold text-amber-800">
-                {formatAmount(result.commission_amount)}
+                {formatAmount(result.commission_amount, exchangeRate)}
               </p>
             </div>
             <div className="rounded-lg bg-green-50 p-3">
               <p className="text-xs text-green-600">Driver Net</p>
               <p className="mt-1 text-lg font-semibold text-green-800">
-                {formatAmount(result.driver_net)}
+                {formatAmount(result.driver_net, exchangeRate)}
               </p>
             </div>
           </div>
@@ -576,13 +584,14 @@ const FareSimulator: React.FC = () => {
 const CategoryMetricsTable: React.FC<{
   metrics: CategoryMetricsItem[]
   isLoading: boolean
-}> = ({ metrics, isLoading }) => {
+  exchangeRate: number | null
+}> = ({ metrics, isLoading, exchangeRate }) => {
   const tableData = metrics.map((m) => ({
     category: (
       <span className="font-medium capitalize">{m.category.replace('_', ' ')}</span>
     ),
     ride_volume: m.ride_volume,
-    average_fare: m.average_fare !== null ? formatAmount(m.average_fare) : '—',
+    average_fare: m.average_fare !== null ? formatAmount(m.average_fare, exchangeRate) : '—',
     active_drivers: m.active_drivers,
     total_requests: m.total_requests,
     completed_trips: m.completed_trips,
@@ -681,6 +690,7 @@ export const PricingView: React.FC = () => {
   const [isAuditLoading, setIsAuditLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [exchangeRate, setExchangeRate] = useState<number | null>(null)
 
   const loadConfig = useCallback(async () => {
     setIsLoading(true)
@@ -721,11 +731,21 @@ export const PricingView: React.FC = () => {
     }
   }, [])
 
+  const loadExchangeRate = useCallback(async () => {
+    try {
+      const data = await supabaseService.getExchangeRate()
+      setExchangeRate(data.rate_cdf_per_usd)
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load exchange rate for CDF display')
+    }
+  }, [])
+
   useEffect(() => {
     loadConfig()
     loadMetrics()
     loadAuditLog()
-  }, [loadConfig, loadMetrics, loadAuditLog])
+    loadExchangeRate()
+  }, [loadConfig, loadMetrics, loadAuditLog, loadExchangeRate])
 
   const handleVehicleSave = (vehicleType: string) => async (body: Partial<VehiclePricingConfig>) => {
     setIsSaving(true)
@@ -787,7 +807,7 @@ export const PricingView: React.FC = () => {
       <div>
         <h1 className="text-2xl font-bold text-brand-900">Pricing Engine Configuration</h1>
         <p className="mt-1 text-sm text-brand-600">
-          View and edit pricing rules. Structure (formula, ordering, category catalogue) is locked per V1 rules.
+          View and edit pricing rules in CDF. Stored fare values remain backend-compatible and are converted using the active exchange rate.
         </p>
       </div>
 
@@ -818,12 +838,13 @@ export const PricingView: React.FC = () => {
             vehicle={vehicle}
             onSave={handleVehicleSave(vehicle.vehicle_type)}
             isSaving={isSaving}
+            exchangeRate={exchangeRate}
           />
         ))}
       </div>
 
       {/* Global config */}
-      <GlobalConfigCard config={globalConfig} onSave={handleGlobalSave} isSaving={isSaving} />
+      <GlobalConfigCard config={globalConfig} onSave={handleGlobalSave} isSaving={isSaving} exchangeRate={exchangeRate} />
 
       {/* Category multipliers */}
       <Card>
@@ -839,16 +860,17 @@ export const PricingView: React.FC = () => {
               category={cat}
               onSave={handleCategorySave(cat.category)}
               isSaving={isSaving}
+              exchangeRate={exchangeRate}
             />
           ))}
         </div>
       </Card>
 
       {/* Fare Simulator */}
-      <FareSimulator />
+      <FareSimulator exchangeRate={exchangeRate} />
 
       {/* Per-category metrics */}
-      <CategoryMetricsTable metrics={metrics} isLoading={isMetricsLoading} />
+      <CategoryMetricsTable metrics={metrics} isLoading={isMetricsLoading} exchangeRate={exchangeRate} />
 
       {/* Audit log */}
       <AuditLogTable logs={auditLogs} isLoading={isAuditLoading} />
